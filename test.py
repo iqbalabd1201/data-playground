@@ -14,8 +14,8 @@ import datetime as dt
 import csv
 
 # setting environment
-s3 = boto3.resource(service_name='s3',region_name= 'ap-southeast-1',aws_access_key_id= 'AKIAURRDRKYVU6JRY5WF',aws_secret_access_key ='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')
-client= boto3.client(service_name='s3',region_name= 'ap-southeast-1',aws_access_key_id= 'AKIAURRDRKYVU6JRY5WF',aws_secret_access_key ='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')
+s3 = boto3.resource(service_name='s3',region_name= 'ap-southeast-1',aws_access_key_id= '*****',aws_secret_access_key ='****/EVlI5p1nOxG')
+client= boto3.client(service_name='s3',region_name= 'ap-southeast-1',aws_access_key_id= '*****',aws_secret_access_key ='*****/EVlI5p1nOxG')
 print(client)
 print('Connect to S3')
 
@@ -36,7 +36,7 @@ batch = 1
 iteration = 0
 for stt in list_stt:
     parameter = {'q':'{}'.format(stt)}
-    my_headers = {'Authorization' : 'Basic cHJkQGxpb25wYXJjZWxfYXBpMTpnaGheJSVeZmRSUiYqKiYqdkdGVHI1NENHRkdWZ2hGVHYjJSRjZw=='}
+    my_headers = {'Authorization' : 'Basic ************=='}
     r = requests.get('http://api.lionparcel.com/v3/stt/track', params = parameter, headers= my_headers)
     data = r.json() 
     ds =  data['stts'][0]
