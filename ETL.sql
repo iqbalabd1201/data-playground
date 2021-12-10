@@ -98,6 +98,73 @@ BEGIN
 END;
 $$
 
+-------------------- DATA MART MONITORING
+
+WITH history_algo AS (
+    SELECT  created_at::date AS stt_date,
+            count(*)            AS TOTAL_HISTORY_ALGO
+    FROM algo_apps.history_algo
+    WHERE stt_date between '2021-10-01' and current_timestamp::date
+    GROUP BY 1
+    ORDER BY 1 DESC
+    ),
+shipment AS(
+    SELECT  created_at::date AS stt_date,
+            count(*)            AS TOTAL_SHIPMENT
+    FROM algo_apps.shipment
+    WHERE stt_date between '2021-10-01' and current_timestamp::date
+    GROUP BY 1
+    ORDER BY 1 DESC
+    ),
+PACKAGE AS(
+    SELECT  created_at::date AS stt_date,
+            count(*)            AS TOTAL_PACKAGE
+    FROM algo_apps.package
+    WHERE stt_date between '2021-10-01' and current_timestamp::date
+    GROUP BY 1
+    ORDER BY 1 DESC
+    ),
+history_recap AS (
+    SELECT  created_at::date AS stt_date,
+            count(*)            AS TOTAL_HISTORY_RECAP
+    FROM algo_apps.history_recap
+    WHERE stt_date between '2021-10-01' and current_timestamp::date
+    GROUP BY 1
+    ORDER BY 1 DESC
+    ),
+shipment_recap AS(
+    SELECT  created_at::date AS stt_date,
+            count(*)            AS TOTAL_SHIPMENT_RECAP
+    FROM algo_apps.shipment_recap
+    WHERE stt_date between '2021-10-01' and current_timestamp::date
+    GROUP BY 1
+    ORDER BY 1 DESC
+    ),
+PACKAGE_recap AS(
+    SELECT  created_at::date AS stt_date,
+            count(*)            AS TOTAL_PACKAGE_RECAP
+    FROM algo_apps.package_recap
+    WHERE stt_date between '2021-10-01' and current_timestamp::date
+    GROUP BY 1
+    ORDER BY 1 DESC
+    )
+SELECT  A.*,
+        B.TOTAL_SHIPMENT,
+        C.TOTAL_PACKAGE,
+        D.TOTAL_HISTORY_RECAP,
+        E.TOTAL_SHIPMENT_RECAP,
+        F.TOTAL_PACKAGE_RECAP,
+        A.TOTAL_HISTORY_ALGO-D.TOTAL_HISTORY_RECAP AS DIFF_HISTORY,
+        B.TOTAL_SHIPMENT-E.TOTAL_SHIPMENT_RECAP AS DIFF_SHIPMENT,
+        C.TOTAL_PACKAGE-F.TOTAL_PACKAGE_RECAP AS DIFF_PACKAGE
+from history_algo A
+LEFT JOIN shipment B ON A.stt_date = B.stt_date
+LEFT JOIN PACKAGE C ON A.stt_date = C.stt_date
+LEFT JOIN history_recap D ON A.stt_date = D.stt_date
+LEFT JOIN shipment_recap E ON A.stt_date = E.stt_date
+LEFT JOIN package_recap F ON A.stt_date = F.stt_date
+ORDER BY 1 DESC
+
 -------------------------------------------------------------------------------------- Table SLA calculation
 
 CREATE OR REPLACE PROCEDURE lp_dw.sla_test(jobname character varying(100))
