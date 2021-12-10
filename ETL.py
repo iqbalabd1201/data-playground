@@ -212,3 +212,62 @@ db_username = secret.get('username')
 db_password = secret.get('password')
 db_url = secret.get('host')
 db_db = secret.get('database')
+
+-----------------------------------------------------------------------------------------------------
+import pandas as pd
+from geopy.distance import geodesic
+
+
+data = {'list_lat_long':["-6.3001207,106.7391286", "-6.13998825,106.8251083", "-6.1336418,106.742922",
+                        "-6.184188333333333, 106.77797166666666"]}
+  
+# Create DataFrame
+df = pd.DataFrame(data)
+
+
+# import module
+from geopy.geocoders import Nominatim
+
+# initialize Nominatim API
+geolocator = Nominatim(user_agent="geoapiExercises")
+
+# print(df)
+origin = (30.172705, 31.526725)
+distance_list=[]
+city_list=[]
+state_list=[]
+country_list=[]
+code_list=[]
+zipcode_list=[]
+
+for i in df['list_lat_long']:
+                # location = geolocator.reverse(Latitude+","+Longitude)
+                location = geolocator.reverse(i)
+
+                address = location.raw['address']
+
+                # traverse the data
+                city = address.get('city', '')
+                state = address.get('state', '')
+                country = address.get('country', '')
+                code = address.get('country_code')
+                zipcode = address.get('postcode')
+                distance = geodesic(origin, i).kilometers
+#                 print('City : ', city_name)
+#                 print('State : ', state)
+#                 print('Country : ', country)
+#                 print('Zip Code : ', zipcode)
+                city_list.append(city)
+                state_list.append(state)
+                country_list.append(country)
+                code_list.append(code)
+                zipcode_list.append(zipcode)
+                distance_list.append(distance)
+df['city']=city_list
+df['state']=state_list
+df['country']=country_list
+df['code']=code_list
+df['zipcode']=zipcode_list
+df['ditance']=distance_list
+print(df)
+
