@@ -119,3 +119,96 @@ print ('executing query.. \n')
 cursor.execute("{}".format(sql_stmt))
 conn.commit()
 print('Complete!!')
+
+
+------------------------------------------------------------------------------------------------------------------
+
+import boto3
+import gspread
+import pandas as pd
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
+import json 
+from io import StringIO
+from oauth2client.service_account import ServiceAccountCredentials
+from awsglue.utils import getResolvedOptions
+import sys
+import pgdb
+
+# setting environment
+s3 = boto3.resource(service_name='s3',region_name= 'ap-southeast-1',aws_access_key_id= 'AKIAURRDRKYVT5XIKV6G',aws_secret_access_key ='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')
+# setting environment
+client = boto3.client('s3')
+
+#def function
+def create_keyfile_dict():
+    variables_keys = {
+      "type": "service_account",
+      "project_id": "data-lp",
+      "private_key_id": "f0adb41dd1f7590aa52f4c7e4554bf1119831584",
+      "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC/vGIykFVzAEkI\nwNKvBbIBWFSh3UG+zuNG3VENNCoFvOh7E0gsW9oOaQIDU5hl1wZKTU5vSrXe/JwH\n4g9hl8TDhmKmb93eOScFOOoy3PAr1pbJRMfvaNXiFFP1YKucBVIABJ5XXq5U3ulJ\nQzeR/1XB8iCGE4IleKZm/wDjO50R7Zb6zFvXfcOhawhcBdK59qfK9+sA+iubT1Sq\nQSljpveLVEcxL+EwkAKnf1xuQLIWXnO/pTs4Xnfb3fg/rw9yjZps+0Sy/GV+3NlP\nw44MMeTVLD7ECGl884+1SSgph3K2K+QJt2IB8RwGnNQHwR0XnEsZNdCctoa/ndaI\nTzCYTswDAgMBAAECggEACNZZUv9NZkmNvuDe/8DWyDJsDtyF2pI/7io77CHgC0z+\nYiiCBm64CZCpeRccn8UIvdqmUiwytHPBiqjOu1l6xjr8HQkW7taE3TwW/1Uo9LxP\n+Dg6sZGMGimEXSZMLUV0LBq1DviG4dPhvhtiWlEB1jifayPxtwxtObNoimYFrVJz\npXoyO5L5mXzFSD+K4VmVRYTpOgTeLQ7VqqI0x21r1cOY6bEUdLC78f2R1hV7GemL\nMGGyVqAEU72O/wuVskrXO8LJ8nV2V7ZN3+CguyN/EdsmrFgWu5EE5ipQBJ0WRgCd\nRphsv2Sw+m1aro+gjr1iypVGjdg6ptU0kChMZBaq4QKBgQDsiWy18PSVwk+dFiU9\nWk8eY5pbGiXN/ikdg6l6WFJLs4rXt2gGy8zmgkrFkAwUoMZFqQaEAcngBY0e4EFC\nPpBUyoOEtcGZSzDgaWiq2L70yhc5Z65AgR9Nsv4yRORQ++Qj+3Vq5sFRCpK34Qlk\nmZCYoE0ueZpkBHlBPTjubr1j+wKBgQDPgz2o6hshoN6d3eeM4Ss9xTIp5b+AMqy8\neoFcE8nqAU5D6xApAQ1o3fGm4wJmQQ015EKd38RPprI/pHqQa3ulPNKuw5f0Rgks\n3TdMMngeM6/JAWEwE0wqzNq8lJi3leAw5WCWVnImBhF5U41dNtxj4kZiBzBu+NpH\n4uKSPwExmQKBgQCNSUDgJH9T/O7lG9c+oHTl6ATJKgMu2gPhF0XiSGNPyHzEgU7n\n0FAh1+2luHce0zHbZiz4KMFWyLoUmUshsJExtI1+dbqgQCN/yDa25iSZvyTEK0QQ\nT5BNLv9bM39VSEBrpcXrBs6uA6zDnO2pY3jVUdsISaaI24s6BsG82fTShQKBgFuF\n7ecXQdomIqmMGrlHApRe6g4Sl9DKCOekPHPJApAj/Un1Xg5HuYtcAF3z17YT0OjJ\nARyyedoLkqiBOdGCpmktl1qfR+DkFt3jv6TqyZHAiDJmWmAi0sA50+vCukyWXOgT\n8vK7s+LTYFebo0jOjou7XAGWXCVFurhj+Dw6b6NZAoGBAIjoAC0hNjIS0t5Zg5eA\nDOkOk2nUTsaDhucqGFVlIDLc8ej22mzBQ8adm4/BH3Dd+7Me0vpW4VasDnl5k3xs\n1CoTHdwNLjuLRptfbKMu6FRLHm3KODVbsuiIF6KOPhfh83CSO+IAQiO/0CMzwdlW\nFXbsY9Bbp/8++18rRw+0bBRd\n-----END PRIVATE KEY-----\n",
+      "client_email": "data-lp@data-lp.iam.gserviceaccount.com",
+      "client_id": "108914504203936374698",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token",
+      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+      "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/data-lp%40data-lp.iam.gserviceaccount.com"
+        }
+    return variables_keys   
+    
+#Define Scope
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+
+#Add Credentials to The Account
+creds = None
+# creds = service_account.Credentials.from_service_account_file('sample.json', scopes=SCOPES)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(create_keyfile_dict(), SCOPES)
+gs = gspread.authorize(creds)
+
+# Define Spreadsheet ID
+SAMPLE_SPREADSHEET_ID ='1oykv6LSep-RQcG759Dh-L6Lt0C4exIPLG3s0g8R6tgI'
+service = build('sheets', 'v4', credentials=creds)
+
+# Call the Sheets API
+sheet = service.spreadsheets()
+result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID, range="Customer Branch!A1:J50000").execute()
+values = result.get('values',[])
+data = pd.DataFrame((values))
+data.columns = data.iloc[0]
+
+data = data.iloc[1:].reset_index(drop=True)
+data.set_index('CUSTOMER_BRANCH_CODE')
+data = data.drop(['NO.'], axis=1)
+result_df = data.drop_duplicates()
+print(result_df.head())
+
+
+from io import StringIO # python3; python2: BytesIO 
+import boto3
+
+bucket = 'lp-s3-datalake-landing-dev' # already created on S3
+csv_buffer = StringIO()
+result_df.to_csv(csv_buffer,index=False,sep=';')
+s3_resource = boto3.resource(service_name ='s3',
+                   region_name = 'ap-southeast-1',
+                   aws_access_key_id = 'AKIAURRDRKYVT5XIKV6G',
+                   aws_secret_access_key = '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'
+                   )
+s3_resource.Object(bucket, 'lp-operations/initial_manual/initial_customer_corporate/cust_branch_code_data_test.csv').put(Body=csv_buffer.getvalue())
+
+
+#get param
+args = getResolvedOptions(sys.argv, ['jobname'])
+
+# Getting DB credentials from Secrets Manager
+client = boto3.client("secretsmanager", region_name="ap-southeast-1")
+get_secret_value_response = client.get_secret_value(
+        SecretId="lp-sm-redshift-dev"
+)
+secret = get_secret_value_response['SecretString']
+secret = json.loads(secret)
+db_username = secret.get('username')
+db_password = secret.get('password')
+db_url = secret.get('host')
+db_db = secret.get('database')
