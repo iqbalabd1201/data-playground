@@ -493,4 +493,4 @@ print("✓ DEBUG COMPLETE")
 print(f"{'='*100}")
 ```
 
-Run ini untuk **super detailed debug** sample 10 dengan semua prompts! 🔍
+Run ini untuk **super detailed debug** sample 10 dengan semua prompts!
