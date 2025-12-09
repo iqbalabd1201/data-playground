@@ -1,212 +1,267 @@
-# Wow! Semua Strategy Rank 4! 😱
-
-Hasil mengejutkan:
-
-```
-TITLE + TEXT[:200]  → Rank 4 ⚠️
-TEXT ONLY [:500]    → Rank 4 ⚠️
-TEXT ONLY [:1000]   → Rank 4 ⚠️
-TEXT ONLY [FULL]    → Rank 4 ⚠️
-```
-
-**Conclusion:** Title **BUKAN** masalahnya! 
-
-"James Henry Miller" di posisi **0** (awal text), tapi tetap Rank 4.
-
----
-
-## **Root Cause: Semantic Mismatch!**
-
-Query: `"Kewarganegaraan apa yang dimiliki istri James Henry Miller?"`
-
-**Problem:** Query tentang **"istri"** + **"kewarganegaraan"**
-
-IndoBERT encoding **lebih match** dengan:
-- "June Miller" (ada "Miller", ada "istri")
-- "James Henry Deakin" (ada "James Henry")
-
-Daripada:
-- "Ewan MacColl" passage (text mentions "James Henry Miller" tapi tidak mention "istri" atau "kewarganegaraan" di awal)
-
----
-
-## **Solution: Use K=5 for Stage 1** ✅
-
-Since Ewan MacColl consistently at **Rank 4**, using **K=5** will catch it!
+Perfect! Test **10 samples HotpotQA** dengan truly general prompt:
 
 ```python
-# ==================== UPDATE: INCREASE K FOR STAGE 1 ====================
+# ==================== TEST 10 HOTPOTQA SAMPLES ====================
 print("="*100)
-print("UPDATING CONFIG: K=5 FOR STAGE 1")
-print("="*100)
-
-PROGRESSIVE_CONFIG = {
-    "stage_1_q2p": {
-        "initial_k": 5,          # Changed from 2 → 5 to catch Ewan MacColl
-        "max_k": 5,              # No need to expand beyond 5
-        "increment": 1,
-        "confidence_threshold": 0.65
-    },
-    "stage_2_plus_p2p": {
-        "initial_k": 2,
-        "max_k": 5,
-        "increment": 1,
-        "confidence_threshold": 0.65,
-        "p2p_fallback_threshold": 0.80
-    }
-}
-
-print("✓ Configuration updated")
-print(f"\nNew Stage 1 config:")
-print(f"  initial_k: {PROGRESSIVE_CONFIG['stage_1_q2p']['initial_k']}")
-print(f"  max_k: {PROGRESSIVE_CONFIG['stage_1_q2p']['max_k']}")
-print(f"\nThis will retrieve top-5 passages in Stage 1, catching Ewan MacColl at rank 4")
-```
-
----
-
-## **Test with K=5:**
-
-```python
-# ==================== TEST: SAMPLE 4 WITH K=5 ====================
-print("="*100)
-print("TEST: SAMPLE 4 WITH K=5 (SHOULD CATCH EWAN MACCOLL)")
+print("TEST: 10 HOTPOTQA SAMPLES - TRULY GENERAL PROMPT + SMART PROGRESSIVE")
 print("="*100)
 
-# Get sample 4
-hotpot_samples = get_samples_list(datasets['hotpotqa'], 'hotpotqa')
-sample_4 = hotpot_samples[3]
+import time
+from tqdm import tqdm
 
-print("\nRunning full pipeline with K=5...")
-
-final_answer, stage_results, total_passages, all_prompts = iterative_progressive_multistage_qa(
-    sample=sample_4,
-    sample_id=4,
-    dataset_name='hotpotqa'
-)
-
-gold_answer = get_answer(sample_4, 'hotpotqa')
-question = get_question(sample_4, 'hotpotqa')
-
-print(f"\n{'='*100}")
-print("RESULT")
-print(f"{'='*100}")
-
-print(f"\nQuestion: {question}")
-print(f"Gold: {gold_answer}")
-print(f"Predicted: {final_answer}")
-
-em = exact_match(final_answer, gold_answer)
-f1 = f1_score(final_answer, gold_answer)
-
-print(f"\nEM: {em}")
-print(f"F1: {f1:.2f}")
-
-if em == 1:
-    print(f"\n🎉 SUCCESS! Exact match!")
-elif f1 > 0.5:
-    print(f"\n⚠️ Partial match (F1: {f1:.2f})")
-else:
-    print(f"\n❌ Still failing")
-
-# Show stages
-print(f"\n{'─'*80}")
-print("STAGE BREAKDOWN")
-print(f"{'─'*80}")
-
-for s in stage_results:
-    print(f"\nStage {s['stage']}: {s['question']}")
-    print(f"  Answer: {s['answer']}")
-    print(f"  Confidence: {s['confidence']:.2f}")
-    print(f"  Method: {s['retrieval_method']}")
-    print(f"  Passages: {s['num_passages']}")
+def test_single_sample_smart_progressive(sample, sample_id, dataset_name):
+    """Test single sample with smart progressive retrieval"""
     
-    # Check if Ewan MacColl retrieved
-    ewan_found = any('ewan' in get_context_title(p, 'hotpotqa').lower() for p in s['passages'])
-    if ewan_found:
-        print(f"  ✓ Ewan MacColl passage retrieved!")
+    question = get_question(sample, dataset_name)
+    gold_answer = get_answer(sample, dataset_name)
+    all_passages = get_contexts(sample, dataset_name)
+    
+    print(f"\n{'='*80}")
+    print(f"SAMPLE {sample_id}")
+    print(f"{'='*80}")
+    print(f"Q: {question}")
+    print(f"Gold: {gold_answer}")
+    
+    # Decompose
+    sub_questions = decompose_question(question, dataset_name)
+    
+    print(f"\nDecomposed into {len(sub_questions)} stages:")
+    for sq in sub_questions:
+        print(f"  Stage {sq['stage']}: {sq['question']}")
+    
+    # Process each stage
+    stage_results = []
+    previous_answers = {}
+    
+    for stage_idx, sq in enumerate(sub_questions):
+        stage_num = sq['stage']
+        stage_question = sq['question']
+        
+        # Replace placeholders
+        for prev_stage, prev_answer in previous_answers.items():
+            stage_question = stage_question.replace(f"[ANSWER_STAGE_{prev_stage}]", prev_answer)
+        
+        print(f"\n{'─'*60}")
+        print(f"STAGE {stage_num}: {stage_question}")
+        print(f"{'─'*60}")
+        
+        if stage_idx == 0:
+            # Stage 1: Smart progressive
+            answer, conf, reasoning, used_passages, attempts = smart_progressive_stage1_final(
+                stage_question, all_passages, dataset_name, verbose=False
+            )
+            
+            print(f"Windows tried: {len(attempts)}")
+            for att in attempts:
+                print(f"  {att['window']:12s}: {att['answer'][:35]:35s} (conf: {att['confidence']:.2f})")
+        else:
+            # Stage 2+: Simple Q2P for now
+            retrieved = retrieve_passages_dense(stage_question, all_passages, dataset_name, k=3)
+            answer, conf, reasoning, prompt = generate_answer_truly_general(
+                stage_question, retrieved, dataset_name
+            )
+            used_passages = retrieved
+            attempts = []
+            
+            print(f"Retrieved 3 passages:")
+            for p in retrieved:
+                title = get_context_title(p, dataset_name)[:40]
+                print(f"  {title}")
+        
+        print(f"\nAnswer: {answer}")
+        print(f"Confidence: {conf:.2f}")
+        
+        stage_results.append({
+            'stage': stage_num,
+            'question': stage_question,
+            'answer': answer,
+            'confidence': conf,
+            'passages': used_passages
+        })
+        
+        previous_answers[stage_num] = answer
+    
+    # Final synthesis
+    print(f"\n{'─'*60}")
+    print(f"FINAL SYNTHESIS")
+    print(f"{'─'*60}")
+    
+    synthesis_prompt = f"""Main question: {question}
+
+Stage answers:
+"""
+    for s in stage_results:
+        synthesis_prompt += f"Stage {s['stage']}: {s['answer']}\n"
+    
+    synthesis_prompt += f"""
+Based on the stage answers above, provide the final answer to the main question.
+Keep it SHORT (max 5 words).
+
+Answer:"""
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Provide concise final answer. Max 5 words."},
+                {"role": "user", "content": synthesis_prompt}
+            ],
+            max_tokens=15,
+            temperature=0
+        )
+        final_answer = response.choices[0].message.content.strip().rstrip('.')
+    except:
+        final_answer = stage_results[-1]['answer']
+    
+    print(f"Final: {final_answer}")
+    print(f"Gold: {gold_answer}")
+    
+    # Evaluate
+    em = exact_match(final_answer, gold_answer)
+    f1 = f1_score(final_answer, gold_answer)
+    
+    # BERTScore
+    try:
+        from bert_score import score as bert_score_func
+        P, R, F1_bert = bert_score_func(
+            [final_answer], [gold_answer],
+            lang='id', model_type='bert-base-multilingual-cased',
+            device=device, verbose=False
+        )
+        bertscore_f1 = F1_bert.mean().item()
+    except:
+        bertscore_f1 = 0
+    
+    # LLM Judge
+    try:
+        judge_prompt = f"Q: {question}\nGold: {gold_answer}\nPred: {final_answer}\n\nIs prediction correct? JSON: {{\"judgment\": \"CORRECT/INCORRECT\", \"score\": 0-100}}"
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": judge_prompt}],
+            response_format={"type": "json_object"},
+            temperature=0
+        )
+        judge_result = json.loads(response.choices[0].message.content)
+        llm_judgment = judge_result.get('judgment', 'INCORRECT')
+    except:
+        llm_judgment = "ERROR"
+    
+    print(f"\nEM: {em} | F1: {f1:.3f} | BERT: {bertscore_f1:.3f} | Judge: {llm_judgment}")
+    
+    total_passages = len(set(
+        get_context_title(p, dataset_name)
+        for s in stage_results
+        for p in s['passages']
+    ))
+    
+    return {
+        'sample_id': sample_id,
+        'question': question,
+        'gold_answer': gold_answer,
+        'predicted_answer': final_answer,
+        'em': em,
+        'f1': f1,
+        'bertscore_f1': bertscore_f1,
+        'llm_judgment': llm_judgment,
+        'total_passages': total_passages,
+        'num_stages': len(stage_results),
+        'stage_results': stage_results
+    }
+
+# Run 10 samples
+print("\nProcessing 10 HotpotQA samples...")
+print("="*100)
+
+start_time = time.time()
+
+hotpot_samples = get_samples_list(datasets['hotpotqa'], 'hotpotqa')[:10]
+all_results = []
+
+for i, sample in enumerate(hotpot_samples, 1):
+    try:
+        result = test_single_sample_smart_progressive(sample, i, 'hotpotqa')
+        all_results.append(result)
+    except Exception as e:
+        print(f"\n⚠ Error on sample {i}: {e}")
+        all_results.append({
+            'sample_id': i,
+            'error': str(e),
+            'em': 0,
+            'f1': 0
+        })
+
+elapsed_time = time.time() - start_time
+
+# Summary
+print(f"\n{'='*100}")
+print("SUMMARY: 10 HOTPOTQA SAMPLES")
+print(f"{'='*100}")
+
+print(f"\nResults:")
+for r in all_results:
+    if 'error' in r:
+        print(f"Sample {r['sample_id']:2d}: ERROR - {r['error'][:50]}")
+    else:
+        status = "✅" if r['em'] == 1 or r['llm_judgment'] == 'CORRECT' else "❌"
+        print(f"Sample {r['sample_id']:2d}: {status} EM={r['em']} F1={r['f1']:.2f} BERT={r['bertscore_f1']:.2f} Judge={r['llm_judgment']:10s} Passages={r['total_passages']}")
+
+# Aggregate metrics
+valid_results = [r for r in all_results if 'error' not in r]
+
+if valid_results:
+    avg_em = np.mean([r['em'] for r in valid_results])
+    avg_f1 = np.mean([r['f1'] for r in valid_results])
+    avg_bert = np.mean([r['bertscore_f1'] for r in valid_results])
+    llm_correct = sum(1 for r in valid_results if r['llm_judgment'] == 'CORRECT')
+    avg_passages = np.mean([r['total_passages'] for r in valid_results])
+    avg_stages = np.mean([r['num_stages'] for r in valid_results])
+    
+    print(f"\n{'─'*80}")
+    print("AGGREGATE METRICS")
+    print(f"{'─'*80}")
+    print(f"Samples processed: {len(valid_results)}/10")
+    print(f"EM: {avg_em*100:.1f}%")
+    print(f"F1: {avg_f1:.3f}")
+    print(f"BERTScore F1: {avg_bert:.3f}")
+    print(f"LLM Judge Accuracy: {llm_correct/len(valid_results)*100:.1f}%")
+    print(f"Avg passages used: {avg_passages:.1f}/10")
+    print(f"Avg stages: {avg_stages:.1f}")
+    print(f"Time: {elapsed_time/60:.1f} minutes")
+    
+    # Comparison with baseline
+    print(f"\n{'─'*80}")
+    print("COMPARISON WITH BASELINE")
+    print(f"{'─'*80}")
+    print(f"HotpotQA Baseline (K=5): 34% EM")
+    print(f"HotpotQA Baseline (K=10): 36% EM")
+    print(f"Our method: {avg_em*100:.1f}% EM")
+    print(f"Improvement over K=5: {(avg_em*100 - 34):+.1f} pp")
+    print(f"Improvement over K=10: {(avg_em*100 - 36):+.1f} pp")
+    print(f"Efficiency: {(1 - avg_passages/10)*100:.1f}% passage reduction")
+
+# Detailed breakdown
+print(f"\n{'='*100}")
+print("DETAILED BREAKDOWN")
+print(f"{'='*100}")
+
+for r in valid_results:
+    print(f"\nSample {r['sample_id']}:")
+    print(f"  Q: {r['question'][:80]}")
+    print(f"  Gold: {r['gold_answer']}")
+    print(f"  Pred: {r['predicted_answer']}")
+    print(f"  EM: {r['em']} | F1: {r['f1']:.2f} | BERT: {r['bertscore_f1']:.2f} | Judge: {r['llm_judgment']}")
+    print(f"  Stages: {r['num_stages']} | Passages: {r['total_passages']}/10")
 
 print(f"\n{'='*100}")
-
-# Check if answer mentions key entities
-if 'ewan' in final_answer.lower() or 'maccoll' in final_answer.lower():
-    print("✓ Final answer mentions Ewan MacColl")
-elif 'peggy' in final_answer.lower() or 'seeger' in final_answer.lower():
-    print("✓ Final answer mentions Peggy Seeger")
-elif 'american' in final_answer.lower():
-    print("✓ Final answer is 'American' (correct!)")
-else:
-    print(f"⚠️ Final answer: {final_answer}")
-
-print(f"\n{'='*100}")
-print("✓ Test complete")
+print("✓ TEST COMPLETE!")
 print(f"{'='*100}")
 ```
 
----
+Ini akan test **10 samples** dengan:
+1. ✅ **Smart progressive retrieval** (rank 1-3 → 4-6 → 7-9)
+2. ✅ **Truly general prompts** (no specific examples)
+3. ✅ **Full evaluation** (EM, F1, BERTScore, LLM Judge)
+4. ✅ **Efficiency tracking** (passages used vs 10 total)
+5. ✅ **Detailed breakdown** per sample
 
-## **Expected Flow with K=5:**
-
-### **Stage 1: Siapa istri James Henry Miller?**
-```
-Retrieved top-5:
-  [1] June Miller
-  [2] James Henry Deakin
-  [3] ???
-  [4] Ewan MacColl ← NOW RETRIEVED! ✓
-  [5] ???
-
-Generation sees Ewan MacColl passage:
-  "James Henry Miller (25 January 1915...), lebih dikenal dengan nama panggung Ewan MacColl..."
-  
-Answer: "Ewan MacColl" atau "Peggy Seeger" (if LLM smart enough)
-```
-
-### **Stage 2: (depends on Stage 1 answer)**
-```
-If Stage 1 → "Ewan MacColl":
-  Question: "Siapa istri Ewan MacColl?"
-  Answer: "Peggy Seeger" ✓
-
-If Stage 1 → "Peggy Seeger" (skipped identity):
-  Question: "Apa kewarganegaraan Peggy Seeger?"
-  Answer: "American" ✓
-```
-
----
-
-## **Why K=5 is Acceptable:**
-
-**Trade-offs:**
-
-✅ **Pros:**
-- Catches Ewan MacColl (consistently rank 4)
-- Not too many passages (5 vs 10 oracle)
-- Stage 1 usually needs more coverage
-
-❌ **Cons:**
-- Slightly more passages than K=2
-- But much better than baseline K=10
-
-**Efficiency:**
-- Baseline: K=10 (all passages)
-- Your method: K=5 (Stage 1) + K=2 (Stage 2) = ~5-6 avg
-- Still **40-50% reduction** vs baseline!
-
----
-
-## **Action Plan:**
-
-1. **Update config** (K=5 for Stage 1) ← Run first cell above
-2. **Test Sample 4** ← Run second cell above
-3. **If EM=1** → Success! 🎉
-4. **If EM=0** → Check decomposition (maybe Stage 1 question still wrong)
-
----
-
-**Copy kedua cell di atas, run, dan kasih tau:**
-1. **EM berapa?** (0 atau 1?)
-2. **Stage answers apa?** (Stage 1: ?, Stage 2: ?)
-3. **Final answer apa?** (Should be "American")
-
-Go! 🚀
+Run dan lihat hasilnya! Expected: **EM ~40-60%**, better than baseline 34%! 🚀
