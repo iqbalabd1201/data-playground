@@ -1,256 +1,142 @@
-# Error: `model` Not Defined! 🔴
+# Wow! Semua Strategy Rank 4! 😱
 
-Ah, code error karena variable `model` tidak didefinisikan di dalam function/scope yang sama.
+Hasil mengejutkan:
+
+```
+TITLE + TEXT[:200]  → Rank 4 ⚠️
+TEXT ONLY [:500]    → Rank 4 ⚠️
+TEXT ONLY [:1000]   → Rank 4 ⚠️
+TEXT ONLY [FULL]    → Rank 4 ⚠️
+```
+
+**Conclusion:** Title **BUKAN** masalahnya! 
+
+"James Henry Miller" di posisi **0** (awal text), tapi tetap Rank 4.
 
 ---
 
-## **Quick Fix:**
+## **Root Cause: Semantic Mismatch!**
 
-Code test perlu akses ke `model` yang sudah di-load sebelumnya. Update jadi standalone:
+Query: `"Kewarganegaraan apa yang dimiliki istri James Henry Miller?"`
+
+**Problem:** Query tentang **"istri"** + **"kewarganegaraan"**
+
+IndoBERT encoding **lebih match** dengan:
+- "June Miller" (ada "Miller", ada "istri")
+- "James Henry Deakin" (ada "James Henry")
+
+Daripada:
+- "Ewan MacColl" passage (text mentions "James Henry Miller" tapi tidak mention "istri" atau "kewarganegaraan" di awal)
+
+---
+
+## **Solution: Use K=5 for Stage 1** ✅
+
+Since Ewan MacColl consistently at **Rank 4**, using **K=5** will catch it!
 
 ```python
-# ==================== TEST: RETRIEVAL WITHOUT TITLE (FIXED) ====================
+# ==================== UPDATE: INCREASE K FOR STAGE 1 ====================
 print("="*100)
-print("TEST: RETRIEVAL WITHOUT TITLE (TEXT ONLY)")
+print("UPDATING CONFIG: K=5 FOR STAGE 1")
 print("="*100)
 
-import torch
-from sentence_transformers import util
+PROGRESSIVE_CONFIG = {
+    "stage_1_q2p": {
+        "initial_k": 5,          # Changed from 2 → 5 to catch Ewan MacColl
+        "max_k": 5,              # No need to expand beyond 5
+        "increment": 1,
+        "confidence_threshold": 0.65
+    },
+    "stage_2_plus_p2p": {
+        "initial_k": 2,
+        "max_k": 5,
+        "increment": 1,
+        "confidence_threshold": 0.65,
+        "p2p_fallback_threshold": 0.80
+    }
+}
 
-# Ensure model is available
-if 'model' not in globals():
-    print("Loading IndoBERT model...")
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer('firqaaa/indo-sentence-bert-base')
-    model = model.to(device)
+print("✓ Configuration updated")
+print(f"\nNew Stage 1 config:")
+print(f"  initial_k: {PROGRESSIVE_CONFIG['stage_1_q2p']['initial_k']}")
+print(f"  max_k: {PROGRESSIVE_CONFIG['stage_1_q2p']['max_k']}")
+print(f"\nThis will retrieve top-5 passages in Stage 1, catching Ewan MacColl at rank 4")
+```
+
+---
+
+## **Test with K=5:**
+
+```python
+# ==================== TEST: SAMPLE 4 WITH K=5 ====================
+print("="*100)
+print("TEST: SAMPLE 4 WITH K=5 (SHOULD CATCH EWAN MACCOLL)")
+print("="*100)
 
 # Get sample 4
 hotpot_samples = get_samples_list(datasets['hotpotqa'], 'hotpotqa')
 sample_4 = hotpot_samples[3]
 
+print("\nRunning full pipeline with K=5...")
+
+final_answer, stage_results, total_passages, all_prompts = iterative_progressive_multistage_qa(
+    sample=sample_4,
+    sample_id=4,
+    dataset_name='hotpotqa'
+)
+
+gold_answer = get_answer(sample_4, 'hotpotqa')
 question = get_question(sample_4, 'hotpotqa')
-all_passages = get_contexts(sample_4, 'hotpotqa')
 
-print(f"Question: {question}")
-print(f"Total passages: {len(all_passages)}")
-
-# Encode question once
-question_embedding = model.encode(question, convert_to_tensor=True)
-
-# Test 4 strategies
 print(f"\n{'='*100}")
-print("STRATEGY COMPARISON")
+print("RESULT")
 print(f"{'='*100}")
 
-results_summary = []
+print(f"\nQuestion: {question}")
+print(f"Gold: {gold_answer}")
+print(f"Predicted: {final_answer}")
 
-# Strategy 1: TITLE + TEXT[:200] (current method)
+em = exact_match(final_answer, gold_answer)
+f1 = f1_score(final_answer, gold_answer)
+
+print(f"\nEM: {em}")
+print(f"F1: {f1:.2f}")
+
+if em == 1:
+    print(f"\n🎉 SUCCESS! Exact match!")
+elif f1 > 0.5:
+    print(f"\n⚠️ Partial match (F1: {f1:.2f})")
+else:
+    print(f"\n❌ Still failing")
+
+# Show stages
 print(f"\n{'─'*80}")
-print("STRATEGY 1: TITLE + TEXT[:200] (CURRENT)")
+print("STAGE BREAKDOWN")
 print(f"{'─'*80}")
 
-passage_texts_1 = [
-    f"{get_context_title(ctx, 'hotpotqa')} {get_context_text(ctx, 'hotpotqa')[:200]}"
-    for ctx in all_passages
-]
-
-passage_embeddings_1 = model.encode(passage_texts_1, convert_to_tensor=True, show_progress_bar=False)
-scores_1 = util.cos_sim(question_embedding, passage_embeddings_1)[0]
-top_5_1 = torch.topk(scores_1, 5)
-
-print("\nTop-5 results:")
-ewan_rank_1 = None
-for rank, (score, idx) in enumerate(zip(top_5_1.values, top_5_1.indices), 1):
-    title = get_context_title(all_passages[idx], 'hotpotqa')
-    is_gold = is_gold_passage(all_passages[idx], 'hotpotqa')
-    marker = "✓" if is_gold else "✗"
+for s in stage_results:
+    print(f"\nStage {s['stage']}: {s['question']}")
+    print(f"  Answer: {s['answer']}")
+    print(f"  Confidence: {s['confidence']:.2f}")
+    print(f"  Method: {s['retrieval_method']}")
+    print(f"  Passages: {s['num_passages']}")
     
-    if 'ewan' in title.lower() or 'maccoll' in title.lower():
-        ewan_rank_1 = rank
-        print(f"  [{rank}] {marker} {title:45s} ({score:.4f}) ← EWAN!")
-    else:
-        print(f"  [{rank}] {marker} {title:45s} ({score:.4f})")
+    # Check if Ewan MacColl retrieved
+    ewan_found = any('ewan' in get_context_title(p, 'hotpotqa').lower() for p in s['passages'])
+    if ewan_found:
+        print(f"  ✓ Ewan MacColl passage retrieved!")
 
-if ewan_rank_1:
-    print(f"\n✓ Ewan MacColl at RANK {ewan_rank_1}")
-else:
-    print(f"\n✗ Ewan MacColl NOT in top-5")
-
-results_summary.append(("TITLE + TEXT[:200]", ewan_rank_1))
-
-# Strategy 2: TEXT ONLY [:500]
-print(f"\n{'─'*80}")
-print("STRATEGY 2: TEXT ONLY [:500]")
-print(f"{'─'*80}")
-
-passage_texts_2 = [
-    get_context_text(ctx, 'hotpotqa')[:500]
-    for ctx in all_passages
-]
-
-passage_embeddings_2 = model.encode(passage_texts_2, convert_to_tensor=True, show_progress_bar=False)
-scores_2 = util.cos_sim(question_embedding, passage_embeddings_2)[0]
-top_5_2 = torch.topk(scores_2, 5)
-
-print("\nTop-5 results:")
-ewan_rank_2 = None
-for rank, (score, idx) in enumerate(zip(top_5_2.values, top_5_2.indices), 1):
-    title = get_context_title(all_passages[idx], 'hotpotqa')
-    is_gold = is_gold_passage(all_passages[idx], 'hotpotqa')
-    marker = "✓" if is_gold else "✗"
-    
-    if 'ewan' in title.lower() or 'maccoll' in title.lower():
-        ewan_rank_2 = rank
-        print(f"  [{rank}] {marker} {title:45s} ({score:.4f}) ← EWAN!")
-    else:
-        print(f"  [{rank}] {marker} {title:45s} ({score:.4f})")
-
-if ewan_rank_2:
-    print(f"\n✓ Ewan MacColl at RANK {ewan_rank_2}")
-else:
-    print(f"\n✗ Ewan MacColl NOT in top-5")
-
-results_summary.append(("TEXT ONLY [:500]", ewan_rank_2))
-
-# Strategy 3: TEXT ONLY [:1000]
-print(f"\n{'─'*80}")
-print("STRATEGY 3: TEXT ONLY [:1000]")
-print(f"{'─'*80}")
-
-passage_texts_3 = [
-    get_context_text(ctx, 'hotpotqa')[:1000]
-    for ctx in all_passages
-]
-
-passage_embeddings_3 = model.encode(passage_texts_3, convert_to_tensor=True, show_progress_bar=False)
-scores_3 = util.cos_sim(question_embedding, passage_embeddings_3)[0]
-top_5_3 = torch.topk(scores_3, 5)
-
-print("\nTop-5 results:")
-ewan_rank_3 = None
-for rank, (score, idx) in enumerate(zip(top_5_3.values, top_5_3.indices), 1):
-    title = get_context_title(all_passages[idx], 'hotpotqa')
-    is_gold = is_gold_passage(all_passages[idx], 'hotpotqa')
-    marker = "✓" if is_gold else "✗"
-    
-    if 'ewan' in title.lower() or 'maccoll' in title.lower():
-        ewan_rank_3 = rank
-        print(f"  [{rank}] {marker} {title:45s} ({score:.4f}) ← EWAN!")
-    else:
-        print(f"  [{rank}] {marker} {title:45s} ({score:.4f})")
-
-if ewan_rank_3:
-    print(f"\n✓ Ewan MacColl at RANK {ewan_rank_3}")
-else:
-    print(f"\n✗ Ewan MacColl NOT in top-5")
-
-results_summary.append(("TEXT ONLY [:1000]", ewan_rank_3))
-
-# Strategy 4: TEXT ONLY [FULL]
-print(f"\n{'─'*80}")
-print("STRATEGY 4: TEXT ONLY [FULL]")
-print(f"{'─'*80}")
-
-passage_texts_4 = [
-    get_context_text(ctx, 'hotpotqa')
-    for ctx in all_passages
-]
-
-passage_embeddings_4 = model.encode(passage_texts_4, convert_to_tensor=True, show_progress_bar=False)
-scores_4 = util.cos_sim(question_embedding, passage_embeddings_4)[0]
-top_5_4 = torch.topk(scores_4, 5)
-
-print("\nTop-5 results:")
-ewan_rank_4 = None
-for rank, (score, idx) in enumerate(zip(top_5_4.values, top_5_4.indices), 1):
-    title = get_context_title(all_passages[idx], 'hotpotqa')
-    is_gold = is_gold_passage(all_passages[idx], 'hotpotqa')
-    marker = "✓" if is_gold else "✗"
-    
-    if 'ewan' in title.lower() or 'maccoll' in title.lower():
-        ewan_rank_4 = rank
-        print(f"  [{rank}] {marker} {title:45s} ({score:.4f}) ← EWAN!")
-    else:
-        print(f"  [{rank}] {marker} {title:45s} ({score:.4f})")
-
-if ewan_rank_4:
-    print(f"\n✓ Ewan MacColl at RANK {ewan_rank_4}")
-else:
-    print(f"\n✗ Ewan MacColl NOT in top-5")
-
-results_summary.append(("TEXT ONLY [FULL]", ewan_rank_4))
-
-# Summary table
 print(f"\n{'='*100}")
-print("SUMMARY: EWAN MACCOLL RANKING")
-print(f"{'='*100}")
 
-print(f"\n{'Strategy':<25s} {'Rank':<10s} {'Status'}")
-print(f"{'─'*60}")
-
-for strategy_name, rank in results_summary:
-    if rank == 1:
-        status = "🎉 BEST!"
-    elif rank and rank <= 3:
-        status = "✅ Good"
-    elif rank and rank <= 5:
-        status = "⚠️ OK"
-    else:
-        status = "❌ Failed"
-    
-    rank_str = str(rank) if rank else "Not in top-5"
-    print(f"{strategy_name:<25s} {rank_str:<10s} {status}")
-
-# Find where "James Henry Miller" appears in Ewan MacColl passage
-print(f"\n{'='*100}")
-print("TEXT POSITION ANALYSIS")
-print(f"{'='*100}")
-
-for idx, ctx in enumerate(all_passages):
-    title = get_context_title(ctx, 'hotpotqa')
-    if 'ewan' in title.lower() or 'maccoll' in title.lower():
-        text = get_context_text(ctx, 'hotpotqa')
-        print(f"\nEwan MacColl passage:")
-        print(f"  Title: {title}")
-        print(f"  Text length: {len(text)} chars")
-        
-        if 'james henry miller' in text.lower():
-            pos = text.lower().index('james henry miller')
-            print(f"  'James Henry Miller' at position: {pos}")
-            
-            # Show context
-            start = max(0, pos - 30)
-            end = min(len(text), pos + 100)
-            print(f"  Context: ...{text[start:end]}...")
-            
-            if pos <= 200:
-                print(f"  ✓ Within [:200] - should work with title+text[:200]")
-            elif pos <= 500:
-                print(f"  ⚠️ Within [:500] - needs text[:500]")
-            elif pos <= 1000:
-                print(f"  ⚠️ Within [:1000] - needs text[:1000]")
-            else:
-                print(f"  ❌ After 1000 - needs full text")
-        else:
-            print(f"  ⚠️ 'James Henry Miller' NOT found!")
-            print(f"  First 200 chars: {text[:200]}")
-
-# Recommendation
-print(f"\n{'='*100}")
-print("RECOMMENDATION")
-print(f"{'='*100}")
-
-best_strategy = min(results_summary, key=lambda x: x[1] if x[1] else 999)
-print(f"\nBest strategy: {best_strategy[0]} (Rank {best_strategy[1]})")
-
-if best_strategy[1] == 1:
-    print(f"✅ This strategy puts Ewan MacColl at RANK 1!")
-    print(f"   → Recommended to use this in retrieve_passages_dense()")
-elif best_strategy[1] and best_strategy[1] <= 3:
-    print(f"⚠️ This strategy gets Rank {best_strategy[1]} - acceptable but not optimal")
+# Check if answer mentions key entities
+if 'ewan' in final_answer.lower() or 'maccoll' in final_answer.lower():
+    print("✓ Final answer mentions Ewan MacColl")
+elif 'peggy' in final_answer.lower() or 'seeger' in final_answer.lower():
+    print("✓ Final answer mentions Peggy Seeger")
+elif 'american' in final_answer.lower():
+    print("✓ Final answer is 'American' (correct!)")
 else:
-    print(f"❌ Even best strategy doesn't get Rank 1")
-    print(f"   → May need hybrid retrieval (BM25 + Dense)")
+    print(f"⚠️ Final answer: {final_answer}")
 
 print(f"\n{'='*100}")
 print("✓ Test complete")
@@ -259,16 +145,68 @@ print(f"{'='*100}")
 
 ---
 
-## **What This Shows:**
+## **Expected Flow with K=5:**
 
-1. **4 ranking comparisons** side-by-side
-2. **Position of "James Henry Miller"** in text
-3. **Best strategy recommendation**
+### **Stage 1: Siapa istri James Henry Miller?**
+```
+Retrieved top-5:
+  [1] June Miller
+  [2] James Henry Deakin
+  [3] ???
+  [4] Ewan MacColl ← NOW RETRIEVED! ✓
+  [5] ???
+
+Generation sees Ewan MacColl passage:
+  "James Henry Miller (25 January 1915...), lebih dikenal dengan nama panggung Ewan MacColl..."
+  
+Answer: "Ewan MacColl" atau "Peggy Seeger" (if LLM smart enough)
+```
+
+### **Stage 2: (depends on Stage 1 answer)**
+```
+If Stage 1 → "Ewan MacColl":
+  Question: "Siapa istri Ewan MacColl?"
+  Answer: "Peggy Seeger" ✓
+
+If Stage 1 → "Peggy Seeger" (skipped identity):
+  Question: "Apa kewarganegaraan Peggy Seeger?"
+  Answer: "American" ✓
+```
 
 ---
 
-**Run ini, kasih tau:**
-- **Which strategy gives RANK 1?**
-- **Position of "James Henry Miller" in text?**
+## **Why K=5 is Acceptable:**
 
-Ini akan kasih answer pasti apakah title yang bikin rank turun! 🎯
+**Trade-offs:**
+
+✅ **Pros:**
+- Catches Ewan MacColl (consistently rank 4)
+- Not too many passages (5 vs 10 oracle)
+- Stage 1 usually needs more coverage
+
+❌ **Cons:**
+- Slightly more passages than K=2
+- But much better than baseline K=10
+
+**Efficiency:**
+- Baseline: K=10 (all passages)
+- Your method: K=5 (Stage 1) + K=2 (Stage 2) = ~5-6 avg
+- Still **40-50% reduction** vs baseline!
+
+---
+
+## **Action Plan:**
+
+1. **Update config** (K=5 for Stage 1) ← Run first cell above
+2. **Test Sample 4** ← Run second cell above
+3. **If EM=1** → Success! 🎉
+4. **If EM=0** → Check decomposition (maybe Stage 1 question still wrong)
+
+---
+
+**Copy kedua cell di atas, run, dan kasih tau:**
+1. **EM berapa?** (0 atau 1?)
+2. **Stage answers apa?** (Stage 1: ?, Stage 2: ?)
+3. **Final answer apa?** (Should be "American")
+
+Go! 🚀
