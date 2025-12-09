@@ -1,394 +1,252 @@
-```python
-    aggregate_results['hotpotqa']['me5_base']['recalls'].append(recall)
-    aggregate_results['hotpotqa']['me5_base']['times'].append(elapsed)
-    
-    # mE5-large
-    start = time.time()
-    retrieved = retrieve_passages_me5_large(question, contexts, 'hotpotqa', k=5)
-    elapsed = time.time() - start
-    recall, _, _ = compute_recall_at_k(retrieved, contexts, 'hotpotqa', k=5)
-    aggregate_results['hotpotqa']['me5_large']['recalls'].append(recall)
-    aggregate_results['hotpotqa']['me5_large']['times'].append(elapsed)
+Ya **BENAR**! Ini vector similarity dari **question** ke **passage**.
 
-print("HotpotQA testing complete")
+## Penjelasan Detail:
 
-# Test 2WikiMultihop
-print(f"\n{'='*80}")
-print("DATASET 2: 2WikiMultihop (English)")
-print(f"{'='*80}")
-
-wiki_samples = get_samples_list(datasets['2wikimultihop'], '2wikimultihop')[:num_test_samples]
-
-for sample_idx, sample in enumerate(tqdm(wiki_samples, desc="2WikiMultihop")):
-    question = get_question(sample, '2wikimultihop')
-    contexts = get_contexts(sample, '2wikimultihop')
-    
-    # IndoBERT
-    start = time.time()
-    retrieved = retrieve_passages_indobert(question, contexts, '2wikimultihop', k=5)
-    elapsed = time.time() - start
-    recall, _, _ = compute_recall_at_k(retrieved, contexts, '2wikimultihop', k=5)
-    aggregate_results['2wikimultihop']['indobert']['recalls'].append(recall)
-    aggregate_results['2wikimultihop']['indobert']['times'].append(elapsed)
-    
-    # mE5-base
-    start = time.time()
-    retrieved = retrieve_passages_me5_base(question, contexts, '2wikimultihop', k=5)
-    elapsed = time.time() - start
-    recall, _, _ = compute_recall_at_k(retrieved, contexts, '2wikimultihop', k=5)
-    aggregate_results['2wikimultihop']['me5_base']['recalls'].append(recall)
-    aggregate_results['2wikimultihop']['me5_base']['times'].append(elapsed)
-    
-    # mE5-large
-    start = time.time()
-    retrieved = retrieve_passages_me5_large(question, contexts, '2wikimultihop', k=5)
-    elapsed = time.time() - start
-    recall, _, _ = compute_recall_at_k(retrieved, contexts, '2wikimultihop', k=5)
-    aggregate_results['2wikimultihop']['me5_large']['recalls'].append(recall)
-    aggregate_results['2wikimultihop']['me5_large']['times'].append(elapsed)
-
-print("2WikiMultihop testing complete")
-
-# Calculate statistics
-print(f"\n{'='*80}")
-print("AGGREGATE RESULTS (10 samples per dataset)")
-print(f"{'='*80}")
-
-for dataset_name in ['hotpotqa', '2wikimultihop']:
-    print(f"\n{'-'*80}")
-    print(f"DATASET: {dataset_name.upper()}")
-    print(f"{'-'*80}")
-    
-    results = aggregate_results[dataset_name]
-    
-    # Calculate means
-    indobert_recall_mean = np.mean(results['indobert']['recalls'])
-    indobert_time_mean = np.mean(results['indobert']['times'])
-    
-    me5_base_recall_mean = np.mean(results['me5_base']['recalls'])
-    me5_base_time_mean = np.mean(results['me5_base']['times'])
-    
-    me5_large_recall_mean = np.mean(results['me5_large']['recalls'])
-    me5_large_time_mean = np.mean(results['me5_large']['times'])
-    
-    # Calculate std
-    indobert_recall_std = np.std(results['indobert']['recalls'])
-    me5_base_recall_std = np.std(results['me5_base']['recalls'])
-    me5_large_recall_std = np.std(results['me5_large']['recalls'])
-    
-    print(f"\n{'Model':<15} {'Recall@5 (mean±std)':<25} {'Time (mean)':<15} {'Speedup'}")
-    print(f"{'-'*75}")
-    print(f"{'IndoBERT':<15} {indobert_recall_mean:>6.2%} ± {indobert_recall_std:>5.2%}       {indobert_time_mean:>8.3f}s      {'1.00x'}")
-    print(f"{'mE5-base':<15} {me5_base_recall_mean:>6.2%} ± {me5_base_recall_std:>5.2%}       {me5_base_time_mean:>8.3f}s      {me5_base_time_mean/indobert_time_mean:>4.2f}x")
-    print(f"{'mE5-large':<15} {me5_large_recall_mean:>6.2%} ± {me5_large_recall_std:>5.2%}       {me5_large_time_mean:>8.3f}s      {me5_large_time_mean/indobert_time_mean:>4.2f}x")
-    
-    print(f"\nRecall Improvement over IndoBERT:")
-    print(f"  mE5-base:  {(me5_base_recall_mean - indobert_recall_mean)*100:+.1f} percentage points")
-    print(f"  mE5-large: {(me5_large_recall_mean - indobert_recall_mean)*100:+.1f} percentage points")
-    
-    print(f"\nRecall Improvement mE5-large over mE5-base:")
-    print(f"  {(me5_large_recall_mean - me5_base_recall_mean)*100:+.1f} percentage points")
-```
-
-## CELL 11: Final Comparison Summary & Visualization
+### Di CELL 6: Retrieval Functions
 
 ```python
-print("="*100)
-print("FINAL COMPARISON SUMMARY & RECOMMENDATION")
-print("="*100)
-
-# Create comparison table
-comparison_data = []
-
-for dataset_name in ['hotpotqa', '2wikimultihop']:
-    results = aggregate_results[dataset_name]
+def retrieve_passages_indobert(question, contexts, dataset_name, k=5):
+    # 1. Extract semua passage texts
+    passage_texts = [get_context_text(ctx, dataset_name) for ctx in contexts]
     
-    for model_name in ['indobert', 'me5_base', 'me5_large']:
-        recall_mean = np.mean(results[model_name]['recalls'])
-        recall_std = np.std(results[model_name]['recalls'])
-        time_mean = np.mean(results[model_name]['times'])
-        
-        comparison_data.append({
-            'Dataset': dataset_name,
-            'Model': model_name,
-            'Recall@5': recall_mean,
-            'Recall_Std': recall_std,
-            'Time': time_mean
-        })
-
-df_comparison = pd.DataFrame(comparison_data)
-
-# Pivot for better display
-print("\n" + "="*80)
-print("RECALL@5 COMPARISON")
-print("="*80)
-
-pivot_recall = df_comparison.pivot_table(
-    index='Model', 
-    columns='Dataset', 
-    values='Recall@5'
-)
-print("\n" + pivot_recall.to_string())
-
-print("\n" + "="*80)
-print("AVERAGE RETRIEVAL TIME (seconds)")
-print("="*80)
-
-pivot_time = df_comparison.pivot_table(
-    index='Model', 
-    columns='Dataset', 
-    values='Time'
-)
-print("\n" + pivot_time.to_string())
-
-# Calculate overall improvements
-print("\n" + "="*80)
-print("OVERALL ANALYSIS")
-print("="*80)
-
-# HotpotQA
-hotpot_indobert = np.mean(aggregate_results['hotpotqa']['indobert']['recalls'])
-hotpot_me5_base = np.mean(aggregate_results['hotpotqa']['me5_base']['recalls'])
-hotpot_me5_large = np.mean(aggregate_results['hotpotqa']['me5_large']['recalls'])
-
-# 2WikiMultihop
-wiki_indobert = np.mean(aggregate_results['2wikimultihop']['indobert']['recalls'])
-wiki_me5_base = np.mean(aggregate_results['2wikimultihop']['me5_base']['recalls'])
-wiki_me5_large = np.mean(aggregate_results['2wikimultihop']['me5_large']['recalls'])
-
-print("\nHotpotQA (Indonesian):")
-print(f"  IndoBERT:  {hotpot_indobert:.2%}")
-print(f"  mE5-base:  {hotpot_me5_base:.2%}  ({(hotpot_me5_base - hotpot_indobert)*100:+.1f} pp)")
-print(f"  mE5-large: {hotpot_me5_large:.2%}  ({(hotpot_me5_large - hotpot_indobert)*100:+.1f} pp)")
-
-print("\n2WikiMultihop (English):")
-print(f"  IndoBERT:  {wiki_indobert:.2%}  [LANGUAGE MISMATCH!]")
-print(f"  mE5-base:  {wiki_me5_base:.2%}  ({(wiki_me5_base - wiki_indobert)*100:+.1f} pp)")
-print(f"  mE5-large: {wiki_me5_large:.2%}  ({(wiki_me5_large - wiki_indobert)*100:+.1f} pp)")
-
-# Average across both datasets
-avg_indobert = (hotpot_indobert + wiki_indobert) / 2
-avg_me5_base = (hotpot_me5_base + wiki_me5_base) / 2
-avg_me5_large = (hotpot_me5_large + wiki_me5_large) / 2
-
-print("\nAverage Across Both Datasets:")
-print(f"  IndoBERT:  {avg_indobert:.2%}")
-print(f"  mE5-base:  {avg_me5_base:.2%}  ({(avg_me5_base - avg_indobert)*100:+.1f} pp)")
-print(f"  mE5-large: {avg_me5_large:.2%}  ({(avg_me5_large - avg_indobert)*100:+.1f} pp)")
-
-# Speed analysis
-hotpot_time_indobert = np.mean(aggregate_results['hotpotqa']['indobert']['times'])
-hotpot_time_me5_base = np.mean(aggregate_results['hotpotqa']['me5_base']['times'])
-hotpot_time_me5_large = np.mean(aggregate_results['hotpotqa']['me5_large']['times'])
-
-wiki_time_indobert = np.mean(aggregate_results['2wikimultihop']['indobert']['times'])
-wiki_time_me5_base = np.mean(aggregate_results['2wikimultihop']['me5_base']['times'])
-wiki_time_me5_large = np.mean(aggregate_results['2wikimultihop']['me5_large']['times'])
-
-avg_time_indobert = (hotpot_time_indobert + wiki_time_indobert) / 2
-avg_time_me5_base = (hotpot_time_me5_base + wiki_time_me5_base) / 2
-avg_time_me5_large = (hotpot_time_me5_large + wiki_time_me5_large) / 2
-
-print("\n" + "="*80)
-print("SPEED ANALYSIS")
-print("="*80)
-
-print(f"\nAverage Retrieval Time:")
-print(f"  IndoBERT:  {avg_time_indobert:.3f}s  (baseline)")
-print(f"  mE5-base:  {avg_time_me5_base:.3f}s  ({avg_time_me5_base/avg_time_indobert:.2f}x slower)")
-print(f"  mE5-large: {avg_time_me5_large:.3f}s  ({avg_time_me5_large/avg_time_indobert:.2f}x slower)")
-
-# Recommendation
-print("\n" + "="*80)
-print("RECOMMENDATION")
-print("="*80)
-
-print("\nBased on 10-sample testing:")
-
-print("\n1. BEST OVERALL: mE5-base")
-print(f"   - Recall improvement: +{(avg_me5_base - avg_indobert)*100:.1f} pp average")
-print(f"   - Huge gain on English: +{(wiki_me5_base - wiki_indobert)*100:.1f} pp")
-print(f"   - Moderate gain on Indonesian: +{(hotpot_me5_base - hotpot_indobert)*100:.1f} pp")
-print(f"   - Speed: {avg_time_me5_base/avg_time_indobert:.2f}x slower (acceptable)")
-print(f"   - Verdict: RECOMMENDED for production")
-
-print("\n2. MAXIMUM ACCURACY: mE5-large")
-print(f"   - Recall improvement: +{(avg_me5_large - avg_indobert)*100:.1f} pp average")
-print(f"   - Additional gain over mE5-base: +{(avg_me5_large - avg_me5_base)*100:.1f} pp")
-print(f"   - Speed: {avg_time_me5_large/avg_time_indobert:.2f}x slower (significant)")
-print(f"   - Verdict: Use if accuracy > speed")
-
-print("\n3. BASELINE: IndoBERT")
-print(f"   - PROBLEM: Poor performance on English ({wiki_indobert:.2%})")
-print(f"   - Only good for Indonesian")
-print(f"   - Verdict: NOT RECOMMENDED for multilingual")
-
-print("\n" + "="*80)
-print("CONCLUSION")
-print("="*80)
-
-print("\nThe current IndoBERT setup has a CRITICAL ISSUE:")
-print("  - It performs POORLY on 2WikiMultihop (English dataset)")
-print(f"  - Recall@5 on English: only {wiki_indobert:.2%}")
-
-print("\nSwitching to mE5-base will provide:")
-print(f"  - Massive improvement on English: +{(wiki_me5_base - wiki_indobert)*100:.0f} percentage points")
-print(f"  - Slight improvement on Indonesian: +{(hotpot_me5_base - hotpot_indobert)*100:.0f} percentage points")
-print(f"  - Only {avg_time_me5_base/avg_time_indobert:.1f}x slower")
-
-print("\nRECOMMENDED ACTION:")
-print("  Replace IndoBERT with mE5-base for all experiments")
-```
-
-## CELL 12: Save Comparison Results
-
-```python
-print("="*100)
-print("SAVING COMPARISON RESULTS")
-print("="*100)
-
-# Create results directory
-results_dir = os.path.join(LOG_DIR, 'retrieval_model_comparison')
-os.makedirs(results_dir, exist_ok=True)
-
-# Save detailed results
-detailed_results = {
-    'test_config': {
-        'num_samples_per_dataset': num_test_samples,
-        'k': 5,
-        'datasets': ['hotpotqa', '2wikimultihop'],
-        'models': ['indobert', 'me5_base', 'me5_large']
-    },
-    'aggregate_results': {
-        dataset: {
-            model: {
-                'recalls': results[model]['recalls'],
-                'times': results[model]['times'],
-                'recall_mean': float(np.mean(results[model]['recalls'])),
-                'recall_std': float(np.std(results[model]['recalls'])),
-                'time_mean': float(np.mean(results[model]['times'])),
-                'time_std': float(np.std(results[model]['times']))
-            }
-            for model in ['indobert', 'me5_base', 'me5_large']
-        }
-        for dataset, results in aggregate_results.items()
-    },
-    'summary': {
-        'hotpotqa': {
-            'indobert_recall': float(hotpot_indobert),
-            'me5_base_recall': float(hotpot_me5_base),
-            'me5_large_recall': float(hotpot_me5_large),
-            'me5_base_improvement': float((hotpot_me5_base - hotpot_indobert) * 100),
-            'me5_large_improvement': float((hotpot_me5_large - hotpot_indobert) * 100)
-        },
-        '2wikimultihop': {
-            'indobert_recall': float(wiki_indobert),
-            'me5_base_recall': float(wiki_me5_base),
-            'me5_large_recall': float(wiki_me5_large),
-            'me5_base_improvement': float((wiki_me5_base - wiki_indobert) * 100),
-            'me5_large_improvement': float((wiki_me5_large - wiki_indobert) * 100)
-        },
-        'overall': {
-            'avg_indobert_recall': float(avg_indobert),
-            'avg_me5_base_recall': float(avg_me5_base),
-            'avg_me5_large_recall': float(avg_me5_large),
-            'avg_me5_base_improvement': float((avg_me5_base - avg_indobert) * 100),
-            'avg_me5_large_improvement': float((avg_me5_large - avg_indobert) * 100)
-        }
-    },
-    'recommendation': 'mE5-base',
-    'recommendation_reason': f'Best balance: +{(avg_me5_base - avg_indobert)*100:.1f}pp improvement with only {avg_time_me5_base/avg_time_indobert:.1f}x slowdown'
-}
-
-# Save to JSON
-results_file = os.path.join(results_dir, 'comparison_results.json')
-with open(results_file, 'w', encoding='utf-8') as f:
-    json.dump(detailed_results, f, indent=2, ensure_ascii=False)
-
-print(f"Detailed results saved to: {results_file}")
-
-# Save comparison table to CSV
-csv_file = os.path.join(results_dir, 'comparison_table.csv')
-df_comparison.to_csv(csv_file, index=False)
-print(f"Comparison table saved to: {csv_file}")
-
-# Save summary to text file
-summary_file = os.path.join(results_dir, 'summary.txt')
-with open(summary_file, 'w', encoding='utf-8') as f:
-    f.write("="*80 + "\n")
-    f.write("RETRIEVAL MODEL COMPARISON SUMMARY\n")
-    f.write("="*80 + "\n\n")
+    # 2. Encode QUESTION menjadi vector
+    query_embedding = model_indobert.encode(question, convert_to_tensor=True)
+    #                                      ^^^^^^^^
+    #                                      INI QUESTION
     
-    f.write(f"Test Configuration:\n")
-    f.write(f"  Samples per dataset: {num_test_samples}\n")
-    f.write(f"  K value: 5\n")
-    f.write(f"  Models tested: IndoBERT, mE5-base, mE5-large\n\n")
+    # 3. Encode semua PASSAGES menjadi vectors
+    passage_embeddings = model_indobert.encode(passage_texts, convert_to_tensor=True)
+    #                                          ^^^^^^^^^^^^^^
+    #                                          INI PASSAGES
     
-    f.write("Results:\n\n")
+    # 4. Hitung COSINE SIMILARITY antara question vector dan passage vectors
+    similarities = util.cos_sim(query_embedding, passage_embeddings)[0]
+    #                           ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+    #                           QUESTION (1 vector)  PASSAGES (N vectors)
     
-    f.write("HotpotQA (Indonesian):\n")
-    f.write(f"  IndoBERT:  {hotpot_indobert:.2%}\n")
-    f.write(f"  mE5-base:  {hotpot_me5_base:.2%}  ({(hotpot_me5_base - hotpot_indobert)*100:+.1f} pp)\n")
-    f.write(f"  mE5-large: {hotpot_me5_large:.2%}  ({(hotpot_me5_large - hotpot_indobert)*100:+.1f} pp)\n\n")
+    # 5. Ranking berdasarkan similarity score (highest = most relevant)
+    top_k_indices = torch.argsort(similarities, descending=True)[:k]
     
-    f.write("2WikiMultihop (English):\n")
-    f.write(f"  IndoBERT:  {wiki_indobert:.2%}  [LANGUAGE MISMATCH]\n")
-    f.write(f"  mE5-base:  {wiki_me5_base:.2%}  ({(wiki_me5_base - wiki_indobert)*100:+.1f} pp)\n")
-    f.write(f"  mE5-large: {wiki_me5_large:.2%}  ({(wiki_me5_large - wiki_indobert)*100:+.1f} pp)\n\n")
-    
-    f.write("Average Across Both Datasets:\n")
-    f.write(f"  IndoBERT:  {avg_indobert:.2%}\n")
-    f.write(f"  mE5-base:  {avg_me5_base:.2%}  ({(avg_me5_base - avg_indobert)*100:+.1f} pp)\n")
-    f.write(f"  mE5-large: {avg_me5_large:.2%}  ({(avg_me5_large - avg_indobert)*100:+.1f} pp)\n\n")
-    
-    f.write("="*80 + "\n")
-    f.write("RECOMMENDATION: mE5-base\n")
-    f.write("="*80 + "\n")
-    f.write(f"Reason: Best balance of accuracy (+{(avg_me5_base - avg_indobert)*100:.1f}pp) and speed ({avg_time_me5_base/avg_time_indobert:.1f}x)\n")
-
-print(f"Summary saved to: {summary_file}")
-
-print("\n" + "="*80)
-print("ALL RESULTS SAVED")
-print("="*80)
-print(f"\nResults directory: {results_dir}")
-print(f"Files saved:")
-print(f"  1. comparison_results.json (detailed)")
-print(f"  2. comparison_table.csv (tabular)")
-print(f"  3. summary.txt (human-readable)")
+    return retrieved
 ```
 
 ---
 
-## Summary: 12 Cells Total
-
-1. **Cell 1**: Setup awal
-2. **Cell 2**: Install & import libraries
-3. **Cell 3**: Load config & datasets
-4. **Cell 4**: Dataset field mappings & utility functions
-5. **Cell 5**: Load all 3 retrieval models
-6. **Cell 6**: Retrieval functions (3 models)
-7. **Cell 7**: Recall@K calculation
-8. **Cell 8**: Test single sample - HotpotQA (Indonesian)
-9. **Cell 9**: Test single sample - 2WikiMultihop (English)
-10. **Cell 10**: Test 10 samples per dataset
-11. **Cell 11**: Final comparison & recommendation
-12. **Cell 12**: Save results
-
-## Expected Output:
+## Visual Explanation:
 
 ```
-HotpotQA (Indonesian):
-  IndoBERT:  65-70%
-  mE5-base:  70-75%  (+5-7 pp)
-  mE5-large: 72-77%  (+7-10 pp)
+INPUT:
+  Question: "Majalah mana yang didirikan lebih dulu?"
+  Passages: [P1, P2, P3, ..., P10]
 
-2WikiMultihop (English):
-  IndoBERT:  40-50%  [BAD - Language mismatch!]
-  mE5-base:  65-70%  (+20-25 pp) ← HUGE IMPROVEMENT
-  mE5-large: 70-75%  (+25-30 pp)
+STEP 1: Encode Question
+  Question → [0.23, 0.45, -0.12, ..., 0.67]  (768-dim vector)
+           │
+           └─ Query Embedding
 
-RECOMMENDATION: mE5-base
+STEP 2: Encode All Passages
+  P1 → [0.15, 0.38, -0.09, ..., 0.54]
+  P2 → [0.28, 0.42, -0.15, ..., 0.71]  ← Arthur's Magazine (relevan!)
+  P3 → [0.11, 0.22, -0.03, ..., 0.33]
+  ...
+  P10 → [0.09, 0.19, -0.06, ..., 0.28]
+        │
+        └─ Passage Embeddings
+
+STEP 3: Compute Cosine Similarity
+  sim(Query, P1)  = 0.62
+  sim(Query, P2)  = 0.89  ← HIGHEST! (most similar)
+  sim(Query, P3)  = 0.45
+  ...
+  sim(Query, P10) = 0.38
+
+STEP 4: Ranking
+  Rank 1: P2 (0.89) ← Arthur's Magazine
+  Rank 2: P1 (0.62)
+  Rank 3: P7 (0.58)
+  ...
+  Rank 10: P10 (0.38)
+
+OUTPUT:
+  Top-K passages (K=5) = [P2, P1, P7, P4, P9]
 ```
 
-Jalankan semua 12 cell ini untuk test lengkap!
+---
+
+## Ini BUKAN Passage-to-Passage!
+
+### Question-to-Passage (Q2P) - Yang Digunakan:
+```python
+similarities = util.cos_sim(query_embedding, passage_embeddings)
+#                           ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+#                           1 vector         N vectors
+#                           (Question)       (All Passages)
+# Result: [N similarities] - satu score per passage
+```
+
+### Passage-to-Passage (P2P) - Yang Di CELL 10 (improvement):
+```python
+similarity_matrix = util.cos_sim(passage_embeddings, passage_embeddings)
+#                                ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+#                                N vectors            N vectors
+#                                (All Passages)       (All Passages)
+# Result: [N x N matrix] - similarity antara setiap passage pair
+```
+
+---
+
+## Kenapa Question-to-Passage?
+
+### 1. **Semantic Matching**
+```
+Question: "Majalah mana yang didirikan lebih dulu?"
+Semantic: [magazine, founding, date, earlier, comparison]
+
+Passage (Arthur's Magazine):
+"Arthur's Magazine (1844–1846) was an American literary periodical..."
+Semantic: [magazine, 1844, American, periodical, literature]
+
+Similarity: HIGH (0.89) ← Ada overlap semantic!
+```
+
+### 2. **Dense Retrieval Advantage**
+- **Sparse (BM25)**: Hanya match exact words
+  - Query: "didirikan lebih dulu"
+  - Passage: "founded in 1844"
+  - Match: ❌ (different words)
+
+- **Dense (BERT/mE5)**: Match semantic meaning
+  - Query vector: captures "founding date comparison"
+  - Passage vector: captures "magazine founded 1844"
+  - Match: ✅ (same meaning, different words!)
+
+---
+
+## Cosine Similarity Formula:
+
+```python
+cos_sim(A, B) = (A · B) / (||A|| * ||B||)
+```
+
+### Example:
+```
+Query vector:   [0.5, 0.3, 0.8]
+Passage vector: [0.6, 0.2, 0.7]
+
+Dot product: (0.5*0.6) + (0.3*0.2) + (0.8*0.7) = 0.30 + 0.06 + 0.56 = 0.92
+||Query||:   sqrt(0.5² + 0.3² + 0.8²) = 1.02
+||Passage||: sqrt(0.6² + 0.2² + 0.7²) = 0.94
+
+Cosine Similarity = 0.92 / (1.02 * 0.94) = 0.959
+
+Score: 0.959 (very similar!)
+```
+
+---
+
+## Comparison: Different Similarity Methods
+
+### Method 1: Cosine Similarity (Current)
+```python
+similarities = util.cos_sim(query_embedding, passage_embeddings)[0]
+# Range: -1 to 1 (biasanya 0 to 1 untuk text)
+# Higher = more similar
+```
+
+### Method 2: Dot Product
+```python
+similarities = torch.matmul(query_embedding, passage_embeddings.T)
+# Range: unbounded
+# Magnitude matters
+```
+
+### Method 3: Euclidean Distance
+```python
+distances = torch.cdist(query_embedding.unsqueeze(0), passage_embeddings)
+# Range: 0 to infinity
+# Lower = more similar (inverse!)
+```
+
+**Cosine Similarity** adalah yang paling umum untuk text retrieval karena:
+- Normalized (tidak terpengaruh panjang vector)
+- Fokus pada direction (semantic meaning)
+- Range 0-1 mudah diinterpret
+
+---
+
+## Test: Apakah Memang Q2P?
+
+Tambahkan cell debug ini untuk verifikasi:
+
+```python
+print("="*80)
+print("DEBUG: Verifikasi Question-to-Passage Similarity")
+print("="*80)
+
+# Get sample
+sample = get_samples_list(datasets['hotpotqa'], 'hotpotqa')[0]
+question = get_question(sample, 'hotpotqa')
+contexts = get_contexts(sample, 'hotpotqa')
+
+print(f"\nQuestion: {question}")
+print(f"Number of passages: {len(contexts)}")
+
+# Manual computation untuk verifikasi
+passage_texts = [get_context_text(ctx, 'hotpotqa') for ctx in contexts]
+
+# Encode
+query_emb = model_indobert.encode(question, convert_to_tensor=True)
+passage_embs = model_indobert.encode(passage_texts, convert_to_tensor=True)
+
+print(f"\nQuery embedding shape: {query_emb.shape}")
+print(f"  → This is 1 vector for the question")
+
+print(f"\nPassage embeddings shape: {passage_embs.shape}")
+print(f"  → This is {len(contexts)} vectors, one for each passage")
+
+# Compute similarity
+similarities = util.cos_sim(query_emb, passage_embs)[0]
+
+print(f"\nSimilarity scores shape: {similarities.shape}")
+print(f"  → {len(contexts)} scores, one for each passage")
+
+print(f"\nSimilarity scores:")
+for i, (ctx, score) in enumerate(zip(contexts, similarities)):
+    title = get_context_title(ctx, 'hotpotqa')
+    is_gold = is_gold_passage(ctx, 'hotpotqa')
+    marker = "[GOLD]" if is_gold else "[DIST]"
+    print(f"  {i+1:2d}. {marker} {title[:50]:50s} = {score:.4f}")
+
+print(f"\nTop-5 passage indices: {torch.argsort(similarities, descending=True)[:5].tolist()}")
+print("\nConclusion: YES, this is Question-to-Passage similarity!")
+print("  - 1 query vector compared to N passage vectors")
+print("  - Each passage gets 1 similarity score")
+print("  - Higher score = passage more relevant to question")
+```
+
+Expected output:
+```
+Query embedding shape: torch.Size([768])
+  → This is 1 vector for the question
+
+Passage embeddings shape: torch.Size([10, 768])
+  → This is 10 vectors, one for each passage
+
+Similarity scores shape: torch.Size([10])
+  → 10 scores, one for each passage
+
+Conclusion: YES, this is Question-to-Passage similarity!
+```
+
+---
+
+## Summary:
+
+✅ **Ya, ini Question-to-Passage (Q2P) similarity**
+
+- **Input**: 1 question + N passages
+- **Process**: Encode → Compute cosine similarity
+- **Output**: N similarity scores
+- **Ranking**: Sort by score, return top-K
+
+Ini adalah **standard dense retrieval approach** yang digunakan di semua BERT-based retrieval systems!
