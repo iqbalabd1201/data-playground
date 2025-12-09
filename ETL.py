@@ -1,261 +1,248 @@
-# Full Code: TRULY Dynamic Decomposition 🎯
+# Debug Sample 4: James Henry Miller → Ewan MacColl 🔍
 
-Oke, ini **benar-benar dinamis** tanpa contoh hardcoded sama sekali:
+Dari screenshot, saya lihat **ada 2 masalah**:
 
----
-
-## **CELL A: Pure Dynamic Decomposition**
-
-```python
-# ==================== TRULY DYNAMIC DECOMPOSITION ====================
-print("="*100)
-print("PURE DYNAMIC DECOMPOSITION (NO EXAMPLES)")
-print("="*100)
-
-def decompose_question(question, dataset_name):
-    """
-    Pure dynamic decomposition - adapts to ANY question structure
-    NO hardcoded examples, NO fixed patterns
-    """
-
-    decomposition_prompt = f"""You are an expert at breaking down complex questions into simpler sub-questions.
-
-Analyze this question and decompose it optimally:
-
-QUESTION: {question}
-
-ANALYSIS FRAMEWORK:
-
-Step 1: Identify the question structure
-- What is being asked? (identity, comparison, attribute, relationship)
-- How many entities are involved?
-- What information is needed to answer?
-
-Step 2: Determine decomposition strategy
-- If asking about someone's relative/relation: First identify who the person is (may use different names)
-- If comparing two things: Get comparable info from both separately
-- If asking about nested entities: Work from outer to inner
-- If simple factual: Direct answer may suffice
-
-Step 3: Create minimal sub-questions
-- Each sub-question focuses on ONE piece of information
-- Later stages can reference earlier answers using [ANSWER_STAGE_N]
-- Avoid over-decomposition - use 2-3 stages when possible
-
-OUTPUT FORMAT (JSON only):
-{{
-  "sub_questions": [
-    {{"stage": 1, "question": "your sub-question here", "purpose": "what you're finding"}},
-    {{"stage": 2, "question": "next sub-question", "purpose": "next step"}}
-  ]
-}}
-
-IMPORTANT:
-- Adapt to the specific question structure
-- Don't use templates or fixed patterns
-- Think about what information is actually needed
-- Be flexible and question-driven
-
-Decompose now:"""
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Decompose questions intelligently. For questions about people's relatives, always identify who the person is first (they may use stage names or aliases). Adapt your strategy to each question. Return ONLY valid JSON."
-                },
-                {
-                    "role": "user",
-                    "content": decomposition_prompt
-                }
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.4  # Allow creative adaptation
-        )
-
-        result = json.loads(response.choices[0].message.content)
-        sub_questions = result.get('sub_questions', [])
-
-        if not sub_questions:
-            return [{"stage": 1, "question": question, "purpose": "Answer directly"}]
-
-        return sub_questions
-
-    except Exception as e:
-        print(f"⚠ Decomposition error: {e}")
-        return [{"stage": 1, "question": question, "purpose": "Answer directly"}]
-
-print("✓ Pure dynamic decomposition loaded")
-```
+1. **James Henry Miller (25 January 1915 – 22 October 1989)** → ini **Ewan MacColl** (nama panggung)
+2. **June Miller** bukan istrinya, yang benar **Peggy Seeger**
 
 ---
 
-## **CELL B: Test 5 Samples**
+## **Debug Code: Test Stage 1 Only**
+
+Copy-paste ini untuk debug detail:
 
 ```python
-# ==================== TEST 5 SAMPLES ====================
+# ==================== DEBUG: SAMPLE 4 STAGE 1 ONLY ====================
 print("="*100)
-print("TESTING 5 HOTPOTQA SAMPLES")
-print("="*100)
-
-import time
-import numpy as np
-
-hotpot_samples = get_samples_list(datasets['hotpotqa'], 'hotpotqa')[:5]
-
-print(f"\nProcessing {len(hotpot_samples)} samples...")
-print("Expected: ~3-4 minutes")
+print("DEBUG: JAMES HENRY MILLER CASE - STAGE 1 RETRIEVAL")
 print("="*100)
 
-results = []
-start_time = time.time()
+# Get sample 4
+hotpot_samples = get_samples_list(datasets['hotpotqa'], 'hotpotqa')
+sample_4 = hotpot_samples[3]  # Index 3 = Sample 4
 
-for sample_idx, sample in enumerate(hotpot_samples):
-    sample_id = sample_idx + 1
-    
-    print(f"\n{'='*100}")
-    print(f"SAMPLE {sample_id}/5")
-    print(f"{'='*100}")
-    
-    try:
-        final_answer, stage_results, total_passages, all_prompts = iterative_progressive_multistage_qa(
-            sample=sample,
-            sample_id=sample_id,
-            dataset_name='hotpotqa'
-        )
-        
-        gold_answer = get_answer(sample, 'hotpotqa')
-        question = get_question(sample, 'hotpotqa')
-        
-        em = exact_match(final_answer, gold_answer)
-        f1 = f1_score(final_answer, gold_answer)
-        
-        try:
-            from bert_score import score as bert_score_func
-            P, R, F1_bert = bert_score_func([final_answer], [gold_answer], lang='id', model_type='bert-base-multilingual-cased', device=device, verbose=False)
-            bertscore_f1 = F1_bert.mean().item()
-        except:
-            bertscore_f1 = 0
-        
-        try:
-            judge_prompt = f"""Evaluate: QUESTION: {question}
-GOLD: {gold_answer}
-PREDICTED: {final_answer}
-JSON: {{"judgment": "CORRECT" or "INCORRECT", "score": 0-100}}"""
-            
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": judge_prompt}],
-                response_format={"type": "json_object"},
-                temperature=0
-            )
-            judge_result = json.loads(response.choices[0].message.content)
-            llm_judgment = judge_result.get('judgment', 'INCORRECT')
-        except:
-            llm_judgment = "ERROR"
-        
-        result = {
-            'sample_id': sample_id,
-            'question': question,
-            'gold_answer': gold_answer,
-            'predicted_answer': final_answer,
-            'em': em,
-            'f1': f1,
-            'bertscore_f1': bertscore_f1,
-            'llm_judgment': llm_judgment,
-            'total_passages': total_passages,
-            'num_stages': len(stage_results),
-            'stage_answers': [s['answer'] for s in stage_results]
-        }
-        
-        results.append(result)
-        
-        status = "✅" if em == 1 else ("⚠️" if llm_judgment == "CORRECT" else "❌")
-        print(f"\n{status} EM: {em} | Judge: {llm_judgment} | Pred: {final_answer}")
-        
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        results.append({'sample_id': sample_id, 'error': str(e), 'em': 0, 'f1': 0})
+question = get_question(sample_4, 'hotpotqa')
+gold_answer = get_answer(sample_4, 'hotpotqa')
+all_passages = get_contexts(sample_4, 'hotpotqa')
 
-elapsed_time = time.time() - start_time
+print(f"\nMain Question: {question}")
+print(f"Gold Answer: {gold_answer}")
+print(f"Total passages: {len(all_passages)}")
 
+# Show all passage titles first
 print(f"\n{'='*100}")
-print("SUMMARY")
+print("ALL AVAILABLE PASSAGES:")
 print(f"{'='*100}")
 
-em_scores = [r['em'] for r in results if 'em' in r]
-llm_correct = [1 if r.get('llm_judgment') == 'CORRECT' else 0 for r in results]
+for idx, passage in enumerate(all_passages):
+    title = get_context_title(passage, 'hotpotqa')
+    is_gold = is_gold_passage(passage, 'hotpotqa')
+    marker = "✓ GOLD" if is_gold else "✗"
+    print(f"[{idx}] {marker} {title}")
+    
+    # Show snippet if contains key terms
+    text = get_context_text(passage, 'hotpotqa')[:200]
+    if 'ewan' in text.lower() or 'maccoll' in text.lower() or 'miller' in text.lower():
+        print(f"     Preview: {text}...")
 
-avg_em = np.mean(em_scores) * 100 if em_scores else 0
-avg_llm = np.mean(llm_correct) * 100 if llm_correct else 0
+# Decompose question
+print(f"\n{'='*100}")
+print("STEP 1: QUESTION DECOMPOSITION")
+print(f"{'='*100}")
 
-print(f"\nTime: {elapsed_time/60:.1f} min")
-print(f"EM: {avg_em:.1f}%")
-print(f"LLM Judge: {avg_llm:.1f}%")
+sub_questions = decompose_question(question, 'hotpotqa')
 
-print(f"\n{'─'*80}")
-for r in results:
-    status = "✅" if r.get('em') == 1 else ("⚠️" if r.get('llm_judgment') == 'CORRECT' else "❌")
-    print(f"{status} S{r['sample_id']}: {r.get('predicted_answer', 'ERROR')[:40]} | Gold: {r.get('gold_answer', 'N/A')[:40]}")
+print(f"\nDecomposed into {len(sub_questions)} stages:")
+for sq in sub_questions:
+    print(f"  Stage {sq['stage']}: {sq['question']}")
+    print(f"    Purpose: {sq.get('purpose', 'N/A')}")
 
-# James Miller check
-sample_4 = next((r for r in results if r['sample_id'] == 4), None)
-if sample_4:
-    print(f"\n{'─'*80}")
-    print("JAMES MILLER (Sample 4):")
-    if sample_4.get('em') == 1:
-        print("✅ FIXED!")
-    else:
-        print(f"❌ Still failing: {sample_4.get('predicted_answer')}")
-        if 'stage_answers' in sample_4:
-            print(f"   Stages: {' → '.join(sample_4['stage_answers'])}")
+# Focus on Stage 1
+stage_1_question = sub_questions[0]['question']
 
 print(f"\n{'='*100}")
-if avg_em >= 80:
-    print("🎉 EXCELLENT → Run 50 samples")
-elif avg_em >= 60:
-    print("✅ GOOD → Can proceed")
+print("STAGE 1 RETRIEVAL TEST")
+print(f"{'='*100}")
+
+print(f"\nStage 1 Question: {stage_1_question}")
+
+# Test different K values
+for k in [2, 3, 5]:
+    print(f"\n{'─'*80}")
+    print(f"RETRIEVING WITH K={k}")
+    print(f"{'─'*80}")
+    
+    retrieved = retrieve_passages_dense(
+        question=stage_1_question,
+        contexts=all_passages,
+        dataset_name='hotpotqa',
+        k=k
+    )
+    
+    print(f"\nRetrieved passages:")
+    ewan_found = False
+    
+    for i, p in enumerate(retrieved, 1):
+        title = get_context_title(p, 'hotpotqa')
+        score = p.get('retrieval_score', 0)
+        is_gold = is_gold_passage(p, 'hotpotqa')
+        marker = "✓" if is_gold else "✗"
+        
+        if 'ewan' in title.lower() or 'maccoll' in title.lower():
+            ewan_found = True
+            print(f"  [{i}] {marker} {title:50s} (score: {score:.4f}) ← EWAN MACCOLL FOUND!")
+        else:
+            print(f"  [{i}] {marker} {title:50s} (score: {score:.4f})")
+    
+    if ewan_found:
+        print(f"\n  ✅ SUCCESS: Ewan MacColl found in top-{k}!")
+        
+        # Test generation
+        print(f"\n  Testing generation with top-{k}...")
+        answer, confidence, reasoning, prompt = generate_with_confidence_multistage(
+            stage_question=stage_1_question,
+            contexts=retrieved,
+            dataset_name='hotpotqa',
+            main_question=question,
+            previous_stage_results=None
+        )
+        
+        print(f"  Answer: {answer}")
+        print(f"  Confidence: {confidence:.2f}")
+        print(f"  Reasoning: {reasoning[:200]}...")
+        
+        if 'ewan' in answer.lower() or 'maccoll' in answer.lower():
+            print(f"\n  ✅ GENERATION SUCCESS: Answer mentions Ewan MacColl!")
+            break
+        else:
+            print(f"\n  ⚠️ GENERATION ISSUE: Answer doesn't mention Ewan MacColl")
+    else:
+        print(f"\n  ❌ FAILURE: Ewan MacColl NOT in top-{k}")
+
+# Analyze why retrieval might fail
+print(f"\n{'='*100}")
+print("RETRIEVAL ANALYSIS")
+print(f"{'='*100}")
+
+print(f"\nStage 1 query: '{stage_1_question}'")
+print(f"\nPossible issues:")
+
+# Check if "Ewan MacColl" passage exists
+ewan_passage = None
+ewan_idx = None
+for idx, p in enumerate(all_passages):
+    title = get_context_title(p, 'hotpotqa')
+    if 'ewan' in title.lower() or 'maccoll' in title.lower():
+        ewan_passage = p
+        ewan_idx = idx
+        break
+
+if ewan_passage:
+    print(f"\n✓ Ewan MacColl passage EXISTS at index {ewan_idx}")
+    print(f"  Title: {get_context_title(ewan_passage, 'hotpotqa')}")
+    
+    # Show full text
+    text = get_context_text(ewan_passage, 'hotpotqa')
+    print(f"\n  Full text preview:")
+    print(f"  {text[:500]}...")
+    
+    # Check if text mentions "James Henry Miller"
+    if 'james henry miller' in text.lower():
+        print(f"\n  ✓ Text DOES mention 'James Henry Miller'")
+    else:
+        print(f"\n  ⚠️ Text does NOT explicitly mention 'James Henry Miller'")
+        print(f"     This is why retrieval might fail!")
+        
+    # Try query expansion
+    print(f"\n{'─'*80}")
+    print("TESTING ALTERNATIVE QUERIES")
+    print(f"{'─'*80}")
+    
+    alternative_queries = [
+        "Siapa James Henry Miller?",
+        "James Henry Miller",
+        "Who is James Henry Miller",
+        "Ewan MacColl James Henry Miller",
+        "James Miller penyanyi",
+        "folk singer James Miller"
+    ]
+    
+    for alt_query in alternative_queries:
+        print(f"\nQuery: '{alt_query}'")
+        
+        retrieved = retrieve_passages_dense(
+            question=alt_query,
+            contexts=all_passages,
+            dataset_name='hotpotqa',
+            k=3
+        )
+        
+        ewan_rank = None
+        for i, p in enumerate(retrieved, 1):
+            title = get_context_title(p, 'hotpotqa')
+            if 'ewan' in title.lower() or 'maccoll' in title.lower():
+                ewan_rank = i
+                break
+        
+        if ewan_rank:
+            print(f"  ✓ Ewan MacColl found at rank {ewan_rank}")
+        else:
+            print(f"  ✗ Ewan MacColl NOT in top-3")
 else:
-    print("⚠️ NEEDS WORK")
+    print(f"\n❌ Ewan MacColl passage does NOT exist in dataset!")
+    print(f"   This is a dataset issue, not a retrieval issue")
+
+print(f"\n{'='*100}")
+print("DEBUG COMPLETE")
+print(f"{'='*100}")
 ```
 
 ---
 
-## **Key Changes:**
+## **What This Will Show:**
 
-1. **NO examples in prompt** - Pure instruction-based
-2. **Temperature 0.4** - Allow adaptation
-3. **System message emphasizes aliases** - "they may use stage names or aliases"
-4. **Simplified output** - Focus on key metrics
-5. **Quick James Miller check** - See if Sample 4 fixed
-
----
-
-## **Expected for Sample 4 (James Miller):**
-
-### **Before (wrong):**
-```
-Stage 1: Siapa istri James Henry Miller?
-  → Tidak ada informasi ❌
-```
-
-### **After (correct):**
-```
-Stage 1: Siapa James Henry Miller?
-  → Ewan MacColl ✓
-Stage 2: Siapa istri Ewan MacColl?
-  → Peggy Seeger ✓
-Stage 3: Apa kewarganegaraan Peggy Seeger?
-  → American ✓
-```
+1. **All passage titles** - Verify "Ewan MacColl" exists
+2. **Decomposition result** - How Stage 1 question is formed
+3. **Retrieval with K=2,3,5** - At what K does "Ewan MacColl" appear?
+4. **Generation test** - If retrieved, does LLM generate "Ewan MacColl"?
+5. **Text analysis** - Does passage explicitly mention "James Henry Miller"?
+6. **Alternative queries** - Which query formulation works best?
 
 ---
 
-**Copy kedua cell, run, dan kasih tau:**
-1. **EM berapa?** (dari 5 samples)
-2. **Sample 4 (James Miller) fixed atau masih gagal?**
-3. **Stage decomposition nya gimana?** (lihat output STEP 1)
+## **Expected Findings:**
 
-Go! 🚀
+### **Hypothesis 1: Retrieval fails** ❌
+```
+K=2: June Miller, James Henry Deakin
+K=3: June Miller, James Henry Deakin, X
+K=5: June Miller, ..., Ewan MacColl (rank 5) ← TOO LOW!
+
+Issue: Need K≥5 or better query
+```
+
+### **Hypothesis 2: Retrieval works but generation fails** ❌
+```
+K=3: Ewan MacColl found (rank 2) ✓
+Answer: "Tidak ada informasi" ← LLM doesn't understand connection
+
+Issue: Prompt needs improvement
+```
+
+### **Hypothesis 3: Text doesn't mention "James Henry Miller"** ❌
+```
+Ewan MacColl passage text: "...penyanyi folk..."
+Does NOT say "James Henry Miller adalah nama asli Ewan MacColl"
+
+Issue: Need broader query or synonym matching
+```
+
+---
+
+**Run debug code dan kasih tau:**
+1. **Does "Ewan MacColl" passage exist?**
+2. **At what K does it appear?** (K=2? K=3? K=5?)
+3. **Does the text mention "James Henry Miller"?**
+4. **Which alternative query works best?**
+
+This will tell us **exactly** where the failure is! 🎯
