@@ -1,120 +1,43 @@
-Oke! **Bikin ulang dari awal** - 1 mega cell yang complete:
+Oke! **Debug sample 10 super detail** + tampilkan semua prompts:
 
 ```python
-# ==================== MEGA CELL: COMPLETE 10 HOTPOTQA TEST ====================
+# ==================== DEBUG SAMPLE 10 - SUPER DETAILED ====================
 print("="*100)
-print("COMPLETE TEST: 10 HOTPOTQA SAMPLES - FROM SCRATCH")
+print("DEBUG: SAMPLE 10 HOTPOTQA - FULL DETAILED BREAKDOWN")
 print("="*100)
 
-# ==================== SETUP ====================
-import os
-import json
-import numpy as np
-import torch
-import time
-from openai import OpenAI
-from sentence_transformers import SentenceTransformer
+# Get sample 10
+sample = get_samples_list(datasets['hotpotqa'], 'hotpotqa')[9]  # Index 9 = Sample 10
 
-# Device
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print(f"Device: {device}")
+question = get_question(sample, 'hotpotqa')
+gold_answer = get_answer(sample, 'hotpotqa')
+all_passages = get_contexts(sample, 'hotpotqa')
 
-# OpenAI client
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-print("✓ OpenAI client initialized")
+print(f"\n{'='*100}")
+print("SAMPLE INFO")
+print(f"{'='*100}")
+print(f"Main Question: {question}")
+print(f"Gold Answer: {gold_answer}")
+print(f"Total passages: {len(all_passages)}")
 
-# Load embedding model
-print("Loading embedding model...")
-embedding_model = SentenceTransformer('sentence-transformers/LaBSE')
-embedding_model = embedding_model.to(device)
-print("✓ Embedding model loaded")
+# Show all passages
+print(f"\n{'='*100}")
+print("ALL AVAILABLE PASSAGES")
+print(f"{'='*100}")
 
-# ==================== HELPER FUNCTIONS ====================
-def get_samples_list(dataset, dataset_name):
-    return [dataset[i] for i in range(len(dataset))]
+for i, p in enumerate(all_passages, 1):
+    title = get_context_title(p, 'hotpotqa')
+    text = get_context_text(p, 'hotpotqa')
+    print(f"\n[{i}] {title}")
+    print(f"    Text: {text[:200]}...")
+    print(f"    Full length: {len(text)} chars")
 
-def get_question(sample, dataset_name):
-    return sample.get('question', '')
+# Decompose
+print(f"\n{'='*100}")
+print("STEP 1: QUESTION DECOMPOSITION")
+print(f"{'='*100}")
 
-def get_answer(sample, dataset_name):
-    return sample.get('answer', '')
-
-def get_contexts(sample, dataset_name):
-    contexts = []
-    context_data = sample.get('context', {})
-    titles = context_data.get('title', [])
-    sentences = context_data.get('sentences', [])
-    for title, sents in zip(titles, sentences):
-        contexts.append({
-            'title': title,
-            'sentences': sents,
-            'text': ' '.join(sents)
-        })
-    return contexts
-
-def get_context_title(context, dataset_name):
-    return context.get('title', 'Unknown')
-
-def get_context_text(context, dataset_name):
-    if 'text' in context:
-        return context['text']
-    sents = context.get('sentences', [])
-    return ' '.join(sents) if isinstance(sents, list) else sents
-
-def is_gold_passage(passage, dataset_name):
-    return passage.get('is_gold', False)
-
-def exact_match(prediction, ground_truth):
-    return int(prediction.strip().lower() == ground_truth.strip().lower())
-
-def f1_score(prediction, ground_truth):
-    pred_tokens = prediction.lower().split()
-    gold_tokens = ground_truth.lower().split()
-    if not pred_tokens or not gold_tokens:
-        return int(pred_tokens == gold_tokens)
-    common = set(pred_tokens) & set(gold_tokens)
-    if not common:
-        return 0
-    precision = len(common) / len(pred_tokens)
-    recall = len(common) / len(gold_tokens)
-    return (2 * precision * recall) / (precision + recall)
-
-print("✓ Helper functions loaded")
-
-# ==================== RETRIEVAL ====================
-def retrieve_passages_dense(question, contexts, dataset_name, k=3):
-    """Dense retrieval using FULL passage text"""
-    # Encode question
-    question_emb = embedding_model.encode(question, convert_to_tensor=True, device=device)
-    
-    # Encode FULL passage texts
-    passage_texts = [get_context_text(ctx, dataset_name) for ctx in contexts]
-    passage_embs = embedding_model.encode(passage_texts, convert_to_tensor=True, device=device)
-    
-    # Cosine similarity
-    similarities = torch.nn.functional.cosine_similarity(
-        question_emb.unsqueeze(0), 
-        passage_embs
-    )
-    
-    # Top-k
-    top_k_indices = torch.topk(similarities, min(k, len(contexts))).indices.cpu().tolist()
-    
-    retrieved = []
-    for rank, idx in enumerate(top_k_indices, 1):
-        ctx = contexts[idx].copy()
-        ctx['retrieval_rank'] = rank
-        ctx['retrieval_score'] = similarities[idx].item()
-        retrieved.append(ctx)
-    
-    return retrieved
-
-print("✓ Retrieval function loaded")
-
-# ==================== DECOMPOSITION ====================
-def decompose_question(question, dataset_name):
-    """Decompose multi-hop question"""
-    prompt = f"""Decompose this multi-hop question into sub-questions.
+decomp_prompt = f"""Decompose this multi-hop question into sub-questions.
 
 Question: {question}
 
@@ -129,36 +52,102 @@ Return JSON:
 }}
 
 JSON:"""
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Decompose questions into necessary sub-questions."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0
-        )
-        result = json.loads(response.choices[0].message.content)
-        return result.get('sub_questions', [{"stage": 1, "question": question}])
-    except:
-        return [{"stage": 1, "question": question}]
 
-print("✓ Decomposition function loaded")
+print("\n[DECOMPOSITION PROMPT]")
+print("─"*80)
+print(decomp_prompt)
+print("─"*80)
 
-# ==================== ANSWER GENERATION ====================
-def generate_answer(stage_question, contexts, dataset_name):
-    """Generate answer from passages"""
-    context_parts = []
-    for i, ctx in enumerate(contexts, 1):
-        title = get_context_title(ctx, dataset_name)
-        text = get_context_text(ctx, dataset_name)
-        context_parts.append(f"Passage {i} ({title}):\n{text}")
+try:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Decompose questions into necessary sub-questions."},
+            {"role": "user", "content": decomp_prompt}
+        ],
+        response_format={"type": "json_object"},
+        temperature=0
+    )
+    decomp_result = json.loads(response.choices[0].message.content)
+    sub_questions = decomp_result.get('sub_questions', [])
     
-    context_str = "\n\n".join(context_parts)
+    print("\n[DECOMPOSITION RESULT]")
+    print(f"✓ Decomposed into {len(sub_questions)} stages:")
+    for sq in sub_questions:
+        print(f"  Stage {sq['stage']}: {sq['question']}")
+        print(f"    Purpose: {sq.get('purpose', 'N/A')}")
+except Exception as e:
+    print(f"\n❌ Decomposition error: {e}")
+    sub_questions = [{"stage": 1, "question": question}]
+
+# Process each stage with FULL detail
+stage_results = []
+previous_answers = {}
+all_prompts = []
+
+for stage_idx, sq in enumerate(sub_questions):
+    stage_num = sq['stage']
+    stage_question = sq['question']
     
-    prompt = f"""Answer the question based on the passages.
+    # Replace placeholders
+    original_stage_question = stage_question
+    for prev_stage, prev_answer in previous_answers.items():
+        stage_question = stage_question.replace(f"[ANSWER_STAGE_{prev_stage}]", prev_answer)
+    
+    print(f"\n{'='*100}")
+    print(f"STAGE {stage_num}")
+    print(f"{'='*100}")
+    print(f"Original question: {original_stage_question}")
+    if original_stage_question != stage_question:
+        print(f"After substitution: {stage_question}")
+    
+    if stage_idx == 0:
+        # Stage 1: Smart progressive with FULL detail
+        print(f"\n{'─'*80}")
+        print("SMART PROGRESSIVE RETRIEVAL")
+        print(f"{'─'*80}")
+        
+        # Get full ranking
+        all_ranked = retrieve_passages_dense(stage_question, all_passages, 'hotpotqa', k=len(all_passages))
+        
+        print(f"\n[FULL RANKING - Top 10]")
+        for i, p in enumerate(all_ranked, 1):
+            title = get_context_title(p, 'hotpotqa')
+            score = p.get('retrieval_score', 0)
+            marker = "✓" if is_gold_passage(p, 'hotpotqa') else "✗"
+            print(f"  [{i}] {marker} {title[:50]:50s} (score: {score:.4f})")
+        
+        # Try windows
+        windows = [(0, 3, "Rank 1-3"), (3, 6, "Rank 4-6"), (6, 9, "Rank 7-9")]
+        
+        attempts = []
+        accumulated = []
+        
+        for window_idx, (start, end, label) in enumerate(windows, 1):
+            print(f"\n{'─'*60}")
+            print(f"WINDOW {window_idx}: {label}")
+            print(f"{'─'*60}")
+            
+            window_passages = all_ranked[start:end]
+            
+            print(f"\nPassages in window:")
+            for p in window_passages:
+                title = get_context_title(p, 'hotpotqa')
+                score = p.get('retrieval_score', 0)
+                rank = p.get('retrieval_rank', 0)
+                marker = "✓" if is_gold_passage(p, 'hotpotqa') else "✗"
+                print(f"  [{rank}] {marker} {title[:50]:50s} ({score:.4f})")
+            
+            # Build prompt
+            context_parts = []
+            for i, ctx in enumerate(window_passages, 1):
+                title = get_context_title(ctx, 'hotpotqa')
+                text = get_context_text(ctx, 'hotpotqa')
+                context_parts.append(f"Passage {i} ({title}):\n{text}")
+            
+            context_str = "\n\n".join(context_parts)
+            
+            gen_prompt = f"""Answer the question based on the passages.
 
 PASSAGES:
 {context_str}
@@ -177,238 +166,331 @@ JSON:
   "confidence": 0-100,
   "reasoning": "..."
 }}"""
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Extract answers from passages."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0
-        )
-        result = json.loads(response.choices[0].message.content)
-        answer = result.get('answer', '')
-        confidence = result.get('confidence', 50) / 100.0
-        reasoning = result.get('reasoning', '')
+            
+            print(f"\n[GENERATION PROMPT - Window {window_idx}]")
+            print("─"*80)
+            print(gen_prompt[:500] + "..." if len(gen_prompt) > 500 else gen_prompt)
+            print("─"*80)
+            
+            all_prompts.append({
+                'stage': stage_num,
+                'window': label,
+                'type': 'generation',
+                'prompt': gen_prompt
+            })
+            
+            # Generate
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "Extract answers from passages."},
+                        {"role": "user", "content": gen_prompt}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0
+                )
+                result = json.loads(response.choices[0].message.content)
+                answer = result.get('answer', '')
+                confidence = result.get('confidence', 50) / 100.0
+                reasoning = result.get('reasoning', '')
+                
+                if "tidak ada informasi" in answer.lower() and confidence > 0.3:
+                    confidence = 0.10
+                
+                print(f"\n[GENERATION RESULT - Window {window_idx}]")
+                print(f"Answer: {answer}")
+                print(f"Confidence: {confidence:.2f}")
+                print(f"Reasoning: {reasoning}")
+                
+                attempts.append({
+                    'window': label,
+                    'answer': answer,
+                    'confidence': confidence,
+                    'reasoning': reasoning,
+                    'passages': window_passages
+                })
+                
+                accumulated.extend(window_passages)
+                
+                if confidence >= 0.7:
+                    print(f"\n✅ SUFFICIENT confidence! Stopping.")
+                    break
+                else:
+                    print(f"\n⚠ Low confidence ({confidence:.2f} < 0.7), trying next window...")
+                
+            except Exception as e:
+                print(f"\n❌ Generation error: {e}")
+                attempts.append({
+                    'window': label,
+                    'answer': '',
+                    'confidence': 0,
+                    'reasoning': str(e),
+                    'passages': window_passages
+                })
         
-        if "tidak ada informasi" in answer.lower() and confidence > 0.3:
-            confidence = 0.10
+        # Pick best
+        best = max(attempts, key=lambda x: x['confidence'])
+        answer = best['answer']
+        confidence = best['confidence']
+        reasoning = best['reasoning']
+        used_passages = accumulated
         
-        return answer, confidence, reasoning
-    except:
-        return "", 0.0, ""
-
-print("✓ Generation function loaded")
-
-# ==================== SMART PROGRESSIVE STAGE 1 ====================
-def smart_progressive_stage1(question, all_passages, dataset_name, verbose=True):
-    """Smart progressive: rank 1-3, then 4-6, then 7-9"""
-    
-    if verbose:
+        print(f"\n{'─'*60}")
+        print(f"STAGE {stage_num} FINAL RESULT")
+        print(f"{'─'*60}")
+        print(f"Best answer: {answer}")
+        print(f"Best confidence: {confidence:.2f}")
+        print(f"From window: {best['window']}")
+        print(f"Total passages tried: {len(accumulated)}")
+        
+    else:
+        # Stage 2+: Q2P
         print(f"\n{'─'*80}")
-        print(f"🔍 RETRIEVAL: Smart Progressive")
+        print("RETRIEVAL: Question-to-Passage (Q2P)")
         print(f"{'─'*80}")
-    
-    # Get full ranking
-    all_ranked = retrieve_passages_dense(question, all_passages, dataset_name, k=len(all_passages))
-    
-    windows = [(0, 3, "Rank 1-3"), (3, 6, "Rank 4-6"), (6, 9, "Rank 7-9")]
-    
-    all_attempts = []
-    accumulated = []
-    
-    for start, end, label in windows:
-        if verbose:
-            print(f"\n  WINDOW: {label}")
         
-        window_passages = all_ranked[start:end]
+        retrieved = retrieve_passages_dense(stage_question, all_passages, 'hotpotqa', k=3)
         
-        if verbose:
-            for p in window_passages:
-                title = get_context_title(p, dataset_name)
-                score = p.get('retrieval_score', 0)
-                rank = p.get('retrieval_rank', 0)
-                marker = "✓" if is_gold_passage(p, dataset_name) else "✗"
-                print(f"    [{rank}] {marker} {title[:45]:45s} ({score:.4f})")
+        print(f"\nTop-3 passages:")
+        for p in retrieved:
+            title = get_context_title(p, 'hotpotqa')
+            score = p.get('retrieval_score', 0)
+            rank = p.get('retrieval_rank', 0)
+            marker = "✓" if is_gold_passage(p, 'hotpotqa') else "✗"
+            print(f"  [{rank}] {marker} {title[:50]:50s} ({score:.4f})")
         
-        answer, conf, reasoning = generate_answer(question, window_passages, dataset_name)
+        # Build prompt
+        context_parts = []
+        for i, ctx in enumerate(retrieved, 1):
+            title = get_context_title(ctx, 'hotpotqa')
+            text = get_context_text(ctx, 'hotpotqa')
+            context_parts.append(f"Passage {i} ({title}):\n{text}")
         
-        if verbose:
-            print(f"  → {answer} (conf: {conf:.2f})")
+        context_str = "\n\n".join(context_parts)
         
-        all_attempts.append({
-            'window': label,
-            'answer': answer,
-            'confidence': conf,
-            'passages': window_passages
-        })
-        
-        accumulated.extend(window_passages)
-        
-        if conf >= 0.7:
-            if verbose:
-                print(f"  ✅ Sufficient!")
-            break
-    
-    best = max(all_attempts, key=lambda x: x['confidence'])
-    return best['answer'], best['confidence'], best.get('reasoning', ''), accumulated, all_attempts
+        gen_prompt = f"""Answer the question based on the passages.
 
-print("✓ Smart progressive loaded")
+PASSAGES:
+{context_str}
 
-# ==================== TEST SAMPLE ====================
-def test_sample(sample, sample_id, dataset_name, verbose=True):
-    """Test single sample"""
-    
-    if verbose:
-        print(f"\n{'='*100}")
-        print(f"SAMPLE {sample_id}")
-        print(f"{'='*100}")
-    
-    question = get_question(sample, dataset_name)
-    gold_answer = get_answer(sample, dataset_name)
-    all_passages = get_contexts(sample, dataset_name)
-    
-    if verbose:
-        print(f"Q: {question}")
-        print(f"Gold: {gold_answer}")
-        print(f"Passages: {len(all_passages)}")
-    
-    # Decompose
-    sub_questions = decompose_question(question, dataset_name)
-    
-    if verbose:
-        print(f"\n{'─'*80}")
-        print(f"Decomposed into {len(sub_questions)} stages:")
-        for sq in sub_questions:
-            print(f"  Stage {sq['stage']}: {sq['question']}")
-    
-    # Process stages
-    stage_results = []
-    previous_answers = {}
-    
-    for stage_idx, sq in enumerate(sub_questions):
-        stage_num = sq['stage']
-        stage_question = sq['question']
+QUESTION: {stage_question}
+
+RULES:
+1. Answer from passages only
+2. Use logical inference when clearly implied
+3. Short answer (max 10 words)
+4. If no info: "Tidak ada informasi"
+
+JSON:
+{{
+  "answer": "...",
+  "confidence": 0-100,
+  "reasoning": "..."
+}}"""
         
-        # Replace placeholders
-        for prev_stage, prev_answer in previous_answers.items():
-            stage_question = stage_question.replace(f"[ANSWER_STAGE_{prev_stage}]", prev_answer)
+        print(f"\n[GENERATION PROMPT]")
+        print("─"*80)
+        print(gen_prompt[:500] + "..." if len(gen_prompt) > 500 else gen_prompt)
+        print("─"*80)
         
-        if verbose:
-            print(f"\n{'='*80}")
-            print(f"STAGE {stage_num}: {stage_question}")
-            print(f"{'='*80}")
-        
-        if stage_idx == 0:
-            answer, conf, reasoning, used_passages, attempts = smart_progressive_stage1(
-                stage_question, all_passages, dataset_name, verbose=verbose
-            )
-        else:
-            retrieved = retrieve_passages_dense(stage_question, all_passages, dataset_name, k=3)
-            answer, conf, reasoning = generate_answer(stage_question, retrieved, dataset_name)
-            used_passages = retrieved
-            if verbose:
-                print(f"\n  Q2P → {answer} (conf: {conf:.2f})")
-        
-        stage_results.append({
+        all_prompts.append({
             'stage': stage_num,
-            'answer': answer,
-            'confidence': conf,
-            'passages': used_passages
+            'type': 'generation',
+            'prompt': gen_prompt
         })
         
-        previous_answers[stage_num] = answer
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Extract answers from passages."},
+                    {"role": "user", "content": gen_prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0
+            )
+            result = json.loads(response.choices[0].message.content)
+            answer = result.get('answer', '')
+            confidence = result.get('confidence', 50) / 100.0
+            reasoning = result.get('reasoning', '')
+            
+            if "tidak ada informasi" in answer.lower() and confidence > 0.3:
+                confidence = 0.10
+            
+            print(f"\n[GENERATION RESULT]")
+            print(f"Answer: {answer}")
+            print(f"Confidence: {confidence:.2f}")
+            print(f"Reasoning: {reasoning}")
+            
+            used_passages = retrieved
+            
+        except Exception as e:
+            print(f"\n❌ Generation error: {e}")
+            answer = ""
+            confidence = 0
+            reasoning = str(e)
+            used_passages = retrieved
     
-    # Synthesis
-    synthesis_prompt = f"Q: {question}\nStages:\n"
+    stage_results.append({
+        'stage': stage_num,
+        'question': stage_question,
+        'answer': answer,
+        'confidence': confidence,
+        'reasoning': reasoning,
+        'passages': used_passages
+    })
+    
+    previous_answers[stage_num] = answer
+
+# Final synthesis
+print(f"\n{'='*100}")
+print("FINAL SYNTHESIS")
+print(f"{'='*100}")
+
+synthesis_prompt = f"""Main question: {question}
+
+Stage answers:
+"""
+for s in stage_results:
+    synthesis_prompt += f"Stage {s['stage']}: {s['answer']}\n"
+
+synthesis_prompt += """
+Based on the stage answers, provide the final answer to the main question.
+Keep it SHORT (max 5 words).
+
+Answer:"""
+
+print("\n[SYNTHESIS PROMPT]")
+print("─"*80)
+print(synthesis_prompt)
+print("─"*80)
+
+all_prompts.append({
+    'stage': 'synthesis',
+    'type': 'synthesis',
+    'prompt': synthesis_prompt
+})
+
+try:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Provide concise final answer. Max 5 words."},
+            {"role": "user", "content": synthesis_prompt}
+        ],
+        max_tokens=15,
+        temperature=0
+    )
+    final_answer = response.choices[0].message.content.strip().rstrip('.')
+    
+    print(f"\n[SYNTHESIS RESULT]")
+    print(f"Final answer: {final_answer}")
+    
+except Exception as e:
+    print(f"\n❌ Synthesis error: {e}")
+    final_answer = stage_results[-1]['answer']
+
+# Evaluation
+print(f"\n{'='*100}")
+print("EVALUATION")
+print(f"{'='*100}")
+
+em = exact_match(final_answer, gold_answer)
+f1 = f1_score(final_answer, gold_answer)
+
+print(f"\nPredicted: {final_answer}")
+print(f"Gold: {gold_answer}")
+print(f"\nEM: {em}")
+print(f"F1: {f1:.3f}")
+
+# Check if correct
+is_correct = em == 1
+
+print(f"\n{'✅' if is_correct else '❌'} Result: {'CORRECT' if is_correct else 'INCORRECT'}")
+
+# Total passages used
+total_passages = len(set(
+    get_context_title(p, 'hotpotqa')
+    for s in stage_results
+    for p in s['passages']
+))
+
+print(f"\nTotal unique passages used: {total_passages}/{len(all_passages)}")
+print(f"Number of stages: {len(stage_results)}")
+
+# Summary of all prompts
+print(f"\n{'='*100}")
+print("PROMPT SUMMARY")
+print(f"{'='*100}")
+
+print(f"\nTotal prompts generated: {len(all_prompts)}")
+for i, p in enumerate(all_prompts, 1):
+    stage = p.get('stage', 'N/A')
+    ptype = p.get('type', 'N/A')
+    window = p.get('window', '')
+    prompt_len = len(p['prompt'])
+    
+    label = f"Stage {stage}"
+    if window:
+        label += f" - {window}"
+    label += f" ({ptype})"
+    
+    print(f"\nPrompt {i}: {label}")
+    print(f"  Length: {prompt_len} chars")
+
+# Detailed stage breakdown
+print(f"\n{'='*100}")
+print("STAGE-BY-STAGE BREAKDOWN")
+print(f"{'='*100}")
+
+for s in stage_results:
+    print(f"\nStage {s['stage']}:")
+    print(f"  Question: {s['question']}")
+    print(f"  Answer: {s['answer']}")
+    print(f"  Confidence: {s['confidence']:.2f}")
+    print(f"  Reasoning: {s['reasoning'][:100]}...")
+    print(f"  Passages used: {len(s['passages'])}")
+    
+    gold_count = sum(1 for p in s['passages'] if is_gold_passage(p, 'hotpotqa'))
+    print(f"  Gold passages retrieved: {gold_count}")
+
+# Final diagnostic
+print(f"\n{'='*100}")
+print("DIAGNOSTIC")
+print(f"{'='*100}")
+
+if not is_correct:
+    print("\n❌ FAILED - Analyzing why...")
+    
+    print(f"\n1. Question decomposition:")
+    print(f"   Stages: {len(sub_questions)}")
+    for sq in sub_questions:
+        print(f"   - Stage {sq['stage']}: {sq['question']}")
+    
+    print(f"\n2. Stage answers:")
     for s in stage_results:
-        synthesis_prompt += f"Stage {s['stage']}: {s['answer']}\n"
-    synthesis_prompt += "\nFinal answer (max 5 words):"
+        print(f"   Stage {s['stage']}: {s['answer']} (conf: {s['confidence']:.2f})")
     
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": synthesis_prompt}],
-            max_tokens=15,
-            temperature=0
-        )
-        final_answer = response.choices[0].message.content.strip().rstrip('.')
-    except:
-        final_answer = stage_results[-1]['answer']
+    print(f"\n3. Final synthesis:")
+    print(f"   Predicted: {final_answer}")
+    print(f"   Gold: {gold_answer}")
+    print(f"   Issue: {'Extra words' if len(final_answer.split()) > len(gold_answer.split()) else 'Wrong entity or format'}")
     
-    # Evaluate
-    em = exact_match(final_answer, gold_answer)
-    f1 = f1_score(final_answer, gold_answer)
-    
-    total_passages = len(set(get_context_title(p, dataset_name) for s in stage_results for p in s['passages']))
-    
-    if verbose:
-        print(f"\n{'─'*80}")
-        print(f"Final: {final_answer}")
-        print(f"Gold: {gold_answer}")
-        print(f"EM: {em} | F1: {f1:.2f} | Passages: {total_passages}/10")
-    
-    return {
-        'sample_id': sample_id,
-        'question': question,
-        'gold_answer': gold_answer,
-        'predicted_answer': final_answer,
-        'em': em,
-        'f1': f1,
-        'total_passages': total_passages,
-        'num_stages': len(stage_results)
-    }
+    print(f"\n4. Gold passage coverage:")
+    total_gold = sum(1 for s in stage_results for p in s['passages'] if is_gold_passage(p, 'hotpotqa'))
+    print(f"   Total gold passages retrieved: {total_gold}/{len([p for p in all_passages if is_gold_passage(p, 'hotpotqa')])}")
 
-print("✓ Test function loaded")
-
-# ==================== RUN 10 SAMPLES ====================
-print(f"\n{'='*100}")
-print("RUNNING 10 SAMPLES")
-print(f"{'='*100}")
-
-start_time = time.time()
-
-hotpot_samples = get_samples_list(datasets['hotpotqa'], 'hotpotqa')[:10]
-all_results = []
-
-for i, sample in enumerate(hotpot_samples, 1):
-    try:
-        result = test_sample(sample, i, 'hotpotqa', verbose=True)
-        all_results.append(result)
-    except Exception as e:
-        print(f"\n❌ Error sample {i}: {e}")
-        all_results.append({'sample_id': i, 'error': str(e), 'em': 0, 'f1': 0})
-
-elapsed = time.time() - start_time
-
-# ==================== SUMMARY ====================
-print(f"\n{'='*100}")
-print("SUMMARY")
-print(f"{'='*100}")
-
-valid = [r for r in all_results if 'error' not in r]
-
-for r in valid:
-    status = "✅" if r['em'] == 1 else "❌"
-    print(f"{status} Sample {r['sample_id']:2d}: EM={r['em']} F1={r['f1']:.2f} Passages={r['total_passages']}/10")
-
-if valid:
-    avg_em = np.mean([r['em'] for r in valid])
-    avg_f1 = np.mean([r['f1'] for r in valid])
-    avg_pass = np.mean([r['total_passages'] for r in valid])
-    
-    print(f"\n{'─'*80}")
-    print(f"EM: {avg_em*100:.1f}%")
-    print(f"F1: {avg_f1:.3f}")
-    print(f"Avg passages: {avg_pass:.1f}/10")
-    print(f"Time: {elapsed:.1f}s")
-    print(f"\nBaseline K=5: 34% | Ours: {avg_em*100:.1f}% | Δ: {(avg_em*100-34):+.1f}pp")
+else:
+    print("\n✅ SUCCESS!")
+    print(f"\nKey factors:")
+    print(f"  - Correct decomposition: {len(sub_questions)} stages")
+    print(f"  - All stages answered correctly")
+    print(f"  - Synthesis produced exact match")
 
 print(f"\n{'='*100}")
-print("✓ COMPLETE!")
+print("✓ DEBUG COMPLETE")
 print(f"{'='*100}")
 ```
 
-Run **1 cell ini aja** - everything from scratch! 🚀
+Run ini untuk **super detailed debug** sample 10 dengan semua prompts! 🔍
