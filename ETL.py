@@ -1,10 +1,90 @@
-Oke! Saya buatkan cell untuk **debug spesifik** "El Extraño Viaje" entity - lihat embeddings dan ranking detail!
+Wah! Hasil **BAGUS SEKALI**! "El Extraño Viaje" passage dapat **Rank 4** (IN TOP-5 ✓) dengan score **0.4818**.
 
-## CELL: Debug "El Extraño Viaje" Entity Retrieval
+Tapi memang ada masalah: **3 distractor passages ranked higher**!
+
+---
+
+## Analysis dari Screenshot:
+
+```
+Query: "El Extraño Viaje"
+
+Top-5 Results:
+  1. [DIST] El extraño caso de la mujer asesinada (0.5433) ← WRONG!
+  2. [DIST] The Strange Case of the Man and the Beast (0.5282)
+  3. [DIST] Rafaela Aparicio (0.5396)
+  4. [GOLD] El extraño viaje (0.4818) ← TARGET! But rank 4
+  5. [GOLD] Fernando Fernán Gómez (0.4196)
+```
+
+**Problem:** Distractor "El extraño caso..." scored HIGHER karena:
+- Lebih banyak overlap: "El extraño" (sama)
+- IndoBERT confused antara "viaje" vs "caso"
+
+---
+
+## Solusi: Pakai Embedding yang Lebih Bagus!
+
+### Options untuk Better Embeddings:
+
+| Model | Language | Pros | Cons |
+|-------|----------|------|------|
+| **IndoBERT** (current) | Indonesian | Good for Indonesian | ✗ Weak on Spanish/English |
+| **mE5-large** | Multilingual | SOTA multilingual | Large model |
+| **BGE-M3** | Multilingual | Very good | 567M params |
+| **GTE-multilingual** | Multilingual | Good balance | New model |
+| **mT5** | Multilingual | Good coverage | Slow |
+
+---
+
+## CELL: Test dengan mE5-Large (Best Multilingual Embedding)
 
 ```python
 print("="*100)
-print("DEBUG: 'El Extraño Viaje' ENTITY EMBEDDING & RANKING")
+print("IMPROVED EMBEDDING: mE5-LARGE MULTILINGUAL")
+print("="*100)
+
+# Install sentence-transformers if needed
+try:
+    from sentence_transformers import SentenceTransformer
+    print("sentence-transformers already installed")
+except:
+    print("Installing sentence-transformers...")
+    !pip install -q sentence-transformers
+
+print("\nLoading mE5-large model...")
+print("  Model: intfloat/multilingual-e5-large")
+print("  Params: 560M (larger than IndoBERT 125M)")
+print("  Languages: 100+ including Spanish, Indonesian, English")
+print("  This may take 30-60 seconds...")
+
+# Load model
+model_me5 = SentenceTransformer('intfloat/multilingual-e5-large')
+model_me5 = model_me5.to(device)
+
+print(f"  Model loaded on device: {device}")
+
+# Important: mE5 requires instruction prefix!
+def encode_query_me5(query):
+    """mE5 requires 'query: ' prefix"""
+    return model_me5.encode(f"query: {query}", convert_to_tensor=True)
+
+def encode_passages_me5(passages):
+    """mE5 requires 'passage: ' prefix"""
+    prefixed = [f"passage: {p}" for p in passages]
+    return model_me5.encode(prefixed, convert_to_tensor=True, show_progress_bar=False)
+
+print("\nmE5 model ready!")
+print("  IMPORTANT: mE5 uses instruction prefixes:")
+print("    Query: 'query: <text>'")
+print("    Passage: 'passage: <text>'")
+```
+
+## CELL: Compare IndoBERT vs mE5-Large
+
+```python
+print("="*100)
+print("COMPARISON: IndoBERT vs mE5-Large")
 print("="*100)
 
 # Get sample
@@ -15,237 +95,256 @@ contexts = get_contexts(wiki_sample, '2wikimultihop')
 print(f"Main Question: {question}")
 print(f"Total passages: {len(contexts)}")
 
-# Show all passage titles first
-print(f"\n{'-'*80}")
-print("ALL PASSAGE TITLES")
-print(f"{'-'*80}")
-for i, ctx in enumerate(contexts):
-    title = get_context_title(ctx, '2wikimultihop')
-    is_gold = is_gold_passage(ctx, '2wikimultihop')
-    marker = "[GOLD]" if is_gold else "[DIST]"
-    print(f"  {i+1:2d}. {marker} {title}")
-
-# Test Query: Just "El Extraño Viaje"
+# Test query
 test_query = "El Extraño Viaje"
+print(f"\nTest Query: \"{test_query}\"")
 
-print(f"\n{'='*80}")
-print(f"TEST QUERY: \"{test_query}\"")
-print(f"{'='*80}")
-
-# Extract all passage texts
+# Extract passages
 passage_texts = [get_context_text(ctx, '2wikimultihop') for ctx in contexts]
 
-# Encode query
-print(f"\nStep 1: Encoding query...")
-query_embedding = model_indobert.encode(test_query, convert_to_tensor=True)
-print(f"  Query: \"{test_query}\"")
-print(f"  Embedding shape: {query_embedding.shape}")
-print(f"  Embedding (first 10 dims): {query_embedding[:10].cpu().numpy()}")
-
-# Encode passages
-print(f"\nStep 2: Encoding all passages...")
-passage_embeddings = model_indobert.encode(passage_texts, convert_to_tensor=True)
-print(f"  Number of passages: {len(passage_texts)}")
-print(f"  Embedding shape: {passage_embeddings.shape}")
-
-# Compute similarities
-print(f"\nStep 3: Computing cosine similarities...")
-similarities = util.cos_sim(query_embedding, passage_embeddings)[0]
-print(f"  Similarity scores shape: {similarities.shape}")
-
-# Get ranking
-ranked_indices = torch.argsort(similarities, descending=True).cpu().numpy()
-
-# Display ALL passages with similarity scores
+# Method 1: IndoBERT
 print(f"\n{'='*80}")
-print(f"ALL PASSAGES RANKED BY SIMILARITY TO: \"{test_query}\"")
+print("METHOD 1: IndoBERT")
 print(f"{'='*80}")
 
-print(f"\n{'Rank':<6} {'Gold':<6} {'Title':<50} {'Score':<10} {'Preview'}")
-print(f"{'-'*120}")
+print(f"Encoding with IndoBERT...")
+query_emb_indobert = model_indobert.encode(test_query, convert_to_tensor=True)
+passage_embs_indobert = model_indobert.encode(passage_texts, convert_to_tensor=True)
 
-for rank, idx in enumerate(ranked_indices, 1):
-    ctx = contexts[idx]
-    title = get_context_title(ctx, '2wikimultihop')
-    score = float(similarities[idx])
-    is_gold = is_gold_passage(ctx, '2wikimultihop')
-    text = get_context_text(ctx, '2wikimultihop')
-    preview = text[:60] + "..." if len(text) > 60 else text
-    
-    gold_marker = "GOLD" if is_gold else "DIST"
-    
-    # Highlight if it's the passage we're looking for
-    if "extraño" in title.lower() or "extrano" in title.lower():
-        print(f">>> {rank:<4} {gold_marker:<6} {title[:48]:48s} {score:8.4f}   {preview}")
-    else:
-        print(f"    {rank:<4} {gold_marker:<6} {title[:48]:48s} {score:8.4f}   {preview}")
+print(f"Computing similarities...")
+sims_indobert = util.cos_sim(query_emb_indobert, passage_embs_indobert)[0]
+ranked_indobert = torch.argsort(sims_indobert, descending=True).cpu().numpy()
 
-# Find "El Extraño Viaje" passage specifically
-print(f"\n{'='*80}")
-print("ANALYSIS: WHERE IS 'El Extraño Viaje' PASSAGE?")
-print(f"{'='*80}")
+print(f"\nTop-5 with IndoBERT:")
+for rank, idx in enumerate(ranked_indobert[:5], 1):
+    title = get_context_title(contexts[idx], '2wikimultihop')
+    score = float(sims_indobert[idx])
+    is_gold = is_gold_passage(contexts[idx], '2wikimultihop')
+    marker = "[GOLD]" if is_gold else "[DIST]"
+    print(f"  [{rank}] {marker} {title[:50]:50s} ({score:.4f})")
 
-target_passage_idx = None
-target_rank = None
-
-for rank, idx in enumerate(ranked_indices, 1):
-    ctx = contexts[idx]
-    title = get_context_title(ctx, '2wikimultihop')
-    
-    if "extraño viaje" in title.lower() or "extrano viaje" in title.lower():
-        target_passage_idx = idx
-        target_rank = rank
+# Find target
+target_rank_indobert = None
+for rank, idx in enumerate(ranked_indobert, 1):
+    title = get_context_title(contexts[idx], '2wikimultihop')
+    if "el extraño viaje" in title.lower() and len(title) < 20:  # Exact match
+        target_rank_indobert = rank
+        target_score_indobert = float(sims_indobert[idx])
         break
 
-if target_passage_idx is not None:
-    print(f"\nFound 'El Extraño Viaje' passage!")
-    print(f"  Position in original list: {target_passage_idx + 1}")
-    print(f"  Rank after retrieval: {target_rank}")
-    print(f"  Similarity score: {float(similarities[target_passage_idx]):.4f}")
-    
-    # Check if it's in top-5
-    if target_rank <= 5:
-        print(f"  Status: IN TOP-5 ✓")
-    else:
-        print(f"  Status: NOT IN TOP-5 ✗ (need to retrieve top-{target_rank} to get it)")
-    
-    # Show the full text
-    target_text = get_context_text(contexts[target_passage_idx], '2wikimultihop')
-    print(f"\n  Passage text:")
-    print(f"  {target_text[:200]}...")
-    
-    # Check why it got this score
-    print(f"\n{'-'*80}")
-    print("DETAILED SIMILARITY ANALYSIS")
-    print(f"{'-'*80}")
-    
-    # Compare with top-1
-    top1_idx = ranked_indices[0]
-    top1_title = get_context_title(contexts[top1_idx], '2wikimultihop')
-    top1_score = float(similarities[top1_idx])
-    top1_text = get_context_text(contexts[top1_idx], '2wikimultihop')
-    
-    print(f"\nTop-1 Passage (for comparison):")
-    print(f"  Title: {top1_title}")
-    print(f"  Score: {top1_score:.4f}")
-    print(f"  Text preview: {top1_text[:150]}...")
-    
-    print(f"\nTarget Passage ('El Extraño Viaje'):")
-    print(f"  Title: {get_context_title(contexts[target_passage_idx], '2wikimultihop')}")
-    print(f"  Score: {float(similarities[target_passage_idx]):.4f}")
-    print(f"  Text preview: {target_text[:150]}...")
-    
-    print(f"\nScore Difference:")
-    score_diff = top1_score - float(similarities[target_passage_idx])
-    print(f"  Top-1 score - Target score: {score_diff:+.4f}")
-    
-    if score_diff > 0.1:
-        print(f"  → Large gap! Top-1 passage much more similar to query")
-    elif score_diff > 0.05:
-        print(f"  → Moderate gap")
-    else:
-        print(f"  → Small gap, scores are close")
-    
-    # Check if query entity appears in passages
-    print(f"\n{'-'*80}")
-    print("ENTITY MATCHING CHECK")
-    print(f"{'-'*80}")
-    
-    print(f"\nQuery: \"{test_query}\"")
-    
-    # Check top-1
-    print(f"\nTop-1 passage ({top1_title}):")
-    if "extraño" in top1_text.lower() or "extrano" in top1_text.lower():
-        print(f"  Contains 'Extraño': YES")
-    else:
-        print(f"  Contains 'Extraño': NO")
-    
-    if "viaje" in top1_text.lower():
-        print(f"  Contains 'Viaje': YES")
-    else:
-        print(f"  Contains 'Viaje': NO")
-    
-    # Check target
-    print(f"\nTarget passage (El Extraño Viaje):")
-    if "extraño" in target_text.lower() or "extrano" in target_text.lower():
-        print(f"  Contains 'Extraño': YES")
-    else:
-        print(f"  Contains 'Extraño': NO")
-    
-    if "viaje" in target_text.lower():
-        print(f"  Contains 'Viaje': YES")
-    else:
-        print(f"  Contains 'Viaje': NO")
+print(f"\n'El Extraño Viaje' passage:")
+print(f"  Rank: {target_rank_indobert}")
+print(f"  Score: {target_score_indobert:.4f}")
 
-else:
-    print(f"\nWARNING: 'El Extraño Viaje' passage NOT FOUND in dataset!")
-
-# Score statistics
+# Method 2: mE5-Large
 print(f"\n{'='*80}")
-print("SCORE STATISTICS")
+print("METHOD 2: mE5-Large")
 print(f"{'='*80}")
 
-all_scores = similarities.cpu().numpy()
-print(f"\nAll similarity scores:")
-print(f"  Mean: {np.mean(all_scores):.4f}")
-print(f"  Std:  {np.std(all_scores):.4f}")
-print(f"  Min:  {np.min(all_scores):.4f}")
-print(f"  Max:  {np.max(all_scores):.4f}")
+print(f"Encoding with mE5-large...")
+query_emb_me5 = encode_query_me5(test_query)
+passage_embs_me5 = encode_passages_me5(passage_texts)
 
-# Check gold passages
+print(f"Computing similarities...")
+sims_me5 = util.cos_sim(query_emb_me5, passage_embs_me5)[0]
+ranked_me5 = torch.argsort(sims_me5, descending=True).cpu().numpy()
+
+print(f"\nTop-5 with mE5-Large:")
+for rank, idx in enumerate(ranked_me5[:5], 1):
+    title = get_context_title(contexts[idx], '2wikimultihop')
+    score = float(sims_me5[idx])
+    is_gold = is_gold_passage(contexts[idx], '2wikimultihop')
+    marker = "[GOLD]" if is_gold else "[DIST]"
+    print(f"  [{rank}] {marker} {title[:50]:50s} ({score:.4f})")
+
+# Find target
+target_rank_me5 = None
+for rank, idx in enumerate(ranked_me5, 1):
+    title = get_context_title(contexts[idx], '2wikimultihop')
+    if "el extraño viaje" in title.lower() and len(title) < 20:
+        target_rank_me5 = rank
+        target_score_me5 = float(sims_me5[idx])
+        break
+
+print(f"\n'El Extraño Viaje' passage:")
+print(f"  Rank: {target_rank_me5}")
+print(f"  Score: {target_score_me5:.4f}")
+
+# Comparison
+print(f"\n{'='*80}")
+print("COMPARISON RESULTS")
+print(f"{'='*80}")
+
+print(f"\n'El Extraño Viaje' Target Passage:")
+print(f"  IndoBERT rank: {target_rank_indobert} (score: {target_score_indobert:.4f})")
+print(f"  mE5-Large rank: {target_rank_me5} (score: {target_score_me5:.4f})")
+
+if target_rank_me5 < target_rank_indobert:
+    improvement = target_rank_indobert - target_rank_me5
+    print(f"\n  WINNER: mE5-Large (improved by {improvement} positions!)")
+elif target_rank_me5 == target_rank_indobert:
+    print(f"\n  TIE: Both models same ranking")
+else:
+    decline = target_rank_me5 - target_rank_indobert
+    print(f"\n  WINNER: IndoBERT (mE5 worse by {decline} positions)")
+
+# Score separation analysis
 gold_indices = [i for i, c in enumerate(contexts) if is_gold_passage(c, '2wikimultihop')]
-gold_scores = [float(similarities[i]) for i in gold_indices]
+dist_indices = [i for i, c in enumerate(contexts) if not is_gold_passage(c, '2wikimultihop')]
 
-print(f"\nGold passages scores:")
-print(f"  Mean: {np.mean(gold_scores):.4f}")
-print(f"  Min:  {np.min(gold_scores):.4f}")
-print(f"  Max:  {np.max(gold_scores):.4f}")
+gold_indobert = [float(sims_indobert[i]) for i in gold_indices]
+dist_indobert = [float(sims_indobert[i]) for i in dist_indices]
+sep_indobert = np.mean(gold_indobert) - np.mean(dist_indobert)
 
-print(f"\nGold passage positions:")
-for gold_idx in gold_indices:
-    gold_title = get_context_title(contexts[gold_idx], '2wikimultihop')
-    gold_rank = list(ranked_indices).index(gold_idx) + 1
-    gold_score = float(similarities[gold_idx])
-    print(f"  '{gold_title[:40]}': Rank {gold_rank}, Score {gold_score:.4f}")
+gold_me5 = [float(sims_me5[i]) for i in gold_indices]
+dist_me5 = [float(sims_me5[i]) for i in dist_indices]
+sep_me5 = np.mean(gold_me5) - np.mean(dist_me5)
 
-# Conclusion
+print(f"\nGold/Distractor Separation:")
+print(f"  IndoBERT: {sep_indobert:+.4f}")
+print(f"  mE5-Large: {sep_me5:+.4f}")
+
+if sep_me5 > sep_indobert:
+    print(f"  → mE5 has better separation (+{sep_me5 - sep_indobert:.4f})")
+else:
+    print(f"  → IndoBERT has better separation (+{sep_indobert - sep_me5:.4f})")
+
+# Recall@5
+recall_indobert = sum(1 for idx in ranked_indobert[:5] if is_gold_passage(contexts[idx], '2wikimultihop'))
+recall_me5 = sum(1 for idx in ranked_me5[:5] if is_gold_passage(contexts[idx], '2wikimultihop'))
+num_gold = len(gold_indices)
+
+print(f"\nRecall@5:")
+print(f"  IndoBERT: {recall_indobert}/{num_gold} ({recall_indobert/num_gold*100:.0f}%)")
+print(f"  mE5-Large: {recall_me5}/{num_gold} ({recall_me5/num_gold*100:.0f}%)")
+
 print(f"\n{'='*80}")
-print("DEBUG CONCLUSION")
+print("FINAL VERDICT")
 print(f"{'='*80}")
 
-if target_rank:
-    print(f"\nQuery: \"{test_query}\"")
-    print(f"Target Passage Rank: {target_rank}")
-    
-    if target_rank == 1:
-        print(f"\nStatus: PERFECT! Target is rank 1")
-    elif target_rank <= 3:
-        print(f"\nStatus: GOOD! Target in top-3")
-    elif target_rank <= 5:
-        print(f"\nStatus: OK! Target in top-5")
-    else:
-        print(f"\nStatus: POOR! Target outside top-5")
-        print(f"\nPossible reasons:")
-        print(f"  1. IndoBERT encoding issue with Spanish text")
-        print(f"  2. Other passages have higher semantic similarity")
-        print(f"  3. Need more specific query (e.g., add 'film' or 'sutradara')")
-else:
-    print(f"\nERROR: Target passage not found!")
+me5_wins = 0
+if target_rank_me5 < target_rank_indobert: me5_wins += 1
+if sep_me5 > sep_indobert: me5_wins += 1
+if recall_me5 > recall_indobert: me5_wins += 1
 
-print(f"\n{'='*80}")
+if me5_wins >= 2:
+    print(f"\nWINNER: mE5-Large")
+    print(f"  Better on {me5_wins}/3 metrics")
+    print(f"\n  Recommendation: USE mE5-Large for multilingual multi-hop QA")
+    print(f"    Pros: Better Spanish/English handling")
+    print(f"    Cons: Slower, larger model (560M params)")
+else:
+    print(f"\nWINNER: IndoBERT")
+    print(f"  Better on {3-me5_wins}/3 metrics")
+    print(f"\n  Recommendation: KEEP IndoBERT")
+    print(f"    Pros: Faster, smaller model")
+    print(f"    Cons: Weaker on Spanish/English")
 ```
 
-Jalankan cell ini untuk melihat **detail lengkap** bagaimana "El Extraño Viaje" di-rank!
+## CELL: Test Multiple Samples (IndoBERT vs mE5)
 
-**Expected output:**
-- Semua passage titles
-- Similarity scores untuk semua passages
-- Ranking lengkap (1-10)
-- Position dari "El Extraño Viaje" passage
-- Score comparison
-- Entity matching check
-- Detailed analysis kenapa rank nya di posisi tertentu
+```python
+print("="*100)
+print("MULTI-SAMPLE TEST: IndoBERT vs mE5-Large")
+print("="*100)
 
-Ini akan kasih insight apakah:
-1. Entity "El Extraño Viaje" alone cukup untuk retrieve passage yang benar
-2. Atau perlu tambahan context (e.g., "sutradara", "film")
+num_samples = 10
+wiki_samples = get_samples_list(datasets['2wikimultihop'], '2wikimultihop')[:num_samples]
+
+results = {
+    'indobert': {'recalls': [], 'separations': [], 'target_ranks': []},
+    'me5': {'recalls': [], 'separations': [], 'target_ranks': []}
+}
+
+print(f"Testing {num_samples} samples...")
+
+for sample_idx, sample in enumerate(tqdm(wiki_samples, desc="Processing"), 1):
+    question = get_question(sample, '2wikimultihop')
+    contexts = get_contexts(sample, '2wikimultihop')
+    
+    # Decompose and get Stage 1 entities
+    decomposition = decompose_question_with_entities(question, '2wikimultihop')
+    stage1 = decomposition['sub_questions'][0]
+    entities = stage1.get('entities', [])
+    
+    if not entities:
+        continue
+    
+    # Test query: use entities
+    test_query = ' '.join(entities)
+    passage_texts = [get_context_text(ctx, '2wikimultihop') for ctx in contexts]
+    
+    # IndoBERT
+    query_emb_ib = model_indobert.encode(test_query, convert_to_tensor=True)
+    passage_embs_ib = model_indobert.encode(passage_texts, convert_to_tensor=True)
+    sims_ib = util.cos_sim(query_emb_ib, passage_embs_ib)[0]
+    ranked_ib = torch.argsort(sims_ib, descending=True)[:5].cpu().numpy()
+    
+    # mE5
+    query_emb_me5 = encode_query_me5(test_query)
+    passage_embs_me5 = encode_passages_me5(passage_texts)
+    sims_me5 = util.cos_sim(query_emb_me5, passage_embs_me5)[0]
+    ranked_me5 = torch.argsort(sims_me5, descending=True)[:5].cpu().numpy()
+    
+    # Calculate metrics
+    gold_indices = [i for i, c in enumerate(contexts) if is_gold_passage(c, '2wikimultihop')]
+    dist_indices = [i for i, c in enumerate(contexts) if not is_gold_passage(c, '2wikimultihop')]
+    
+    if gold_indices and dist_indices:
+        # Recall
+        recall_ib = sum(1 for idx in ranked_ib if is_gold_passage(contexts[idx], '2wikimultihop')) / len(gold_indices)
+        recall_me5 = sum(1 for idx in ranked_me5 if is_gold_passage(contexts[idx], '2wikimultihop')) / len(gold_indices)
+        
+        results['indobert']['recalls'].append(recall_ib)
+        results['me5']['recalls'].append(recall_me5)
+        
+        # Separation
+        sep_ib = np.mean([float(sims_ib[i]) for i in gold_indices]) - np.mean([float(sims_ib[i]) for i in dist_indices])
+        sep_me5 = np.mean([float(sims_me5[i]) for i in gold_indices]) - np.mean([float(sims_me5[i]) for i in dist_indices])
+        
+        results['indobert']['separations'].append(sep_ib)
+        results['me5']['separations'].append(sep_me5)
+
+# Aggregate results
+print(f"\n{'='*80}")
+print(f"AGGREGATE RESULTS ({len(results['indobert']['recalls'])} samples)")
+print(f"{'='*80}")
+
+ib_recall_mean = np.mean(results['indobert']['recalls'])
+ib_sep_mean = np.mean(results['indobert']['separations'])
+
+me5_recall_mean = np.mean(results['me5']['recalls'])
+me5_sep_mean = np.mean(results['me5']['separations'])
+
+print(f"\nRecall@5:")
+print(f"  IndoBERT:  {ib_recall_mean:.2%}")
+print(f"  mE5-Large: {me5_recall_mean:.2%}")
+print(f"  Improvement: {(me5_recall_mean - ib_recall_mean)*100:+.1f} pp")
+
+print(f"\nScore Separation:")
+print(f"  IndoBERT:  {ib_sep_mean:+.4f}")
+print(f"  mE5-Large: {me5_sep_mean:+.4f}")
+print(f"  Improvement: {(me5_sep_mean - ib_sep_mean):+.4f}")
+
+print(f"\n{'='*80}")
+print("FINAL RECOMMENDATION")
+print(f"{'='*80}")
+
+if me5_recall_mean > ib_recall_mean and me5_sep_mean > ib_sep_mean:
+    print(f"\nUSE mE5-Large for 2WikiMultihop!")
+    print(f"  Significantly better multilingual handling")
+    print(f"  Worth the extra computational cost")
+elif me5_recall_mean > ib_recall_mean + 0.05:  # At least 5pp improvement
+    print(f"\nUSE mE5-Large for 2WikiMultihop!")
+    print(f"  Better recall, worth the trade-off")
+else:
+    print(f"\nSTICK with IndoBERT")
+    print(f"  Performance similar, but faster/smaller")
+```
+
+Jalankan 3 cells ini untuk:
+1. Load mE5-large model
+2. Compare single sample
+3. Test 10 samples aggregate
+
+**Expected:** mE5-Large should rank "El Extraño Viaje" **higher** (rank 1-2) vs IndoBERT (rank 4)!
